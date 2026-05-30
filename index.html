@@ -2477,8 +2477,25 @@ th {
   <nav class="nav">
     <div class="logo-wrap" onclick="go('dashboard')"><div class="logo"><span class="fr">Franca</span><span class="ai">AI</span></div></div>
     <div class="nav-right">
-      <span style="font-size:13px;color:var(--text2);" id="nav-username">Success Joseph</span>
-      <button class="btn btn-ghost btn-sm" onclick="handleLogout()">Logout</button>
+      <div class="nav-profile-wrap">
+        <span style="font-size:13px;color:var(--text2);" id="nav-username" onclick="toggleNavDropdown(event)">Success Joseph</span>
+        <div class="nav-dropdown" id="nav-dropdown">
+          <div class="nav-dropdown-header">
+            <div class="nav-dropdown-name" id="nav-drop-name">Success Joseph</div>
+            <div class="nav-dropdown-meta" id="nav-drop-meta">Education Undergraduate · University of Port Harcourt</div>
+          </div>
+          <button class="nav-dropdown-item" onclick="closeNavDropdown();go('profile')">
+            <span class="nd-icon">👤</span> Edit Profile
+          </button>
+          <button class="nav-dropdown-item" onclick="closeNavDropdown();go('step1')">
+            <span class="nd-icon">✏️</span> New Lesson Note
+          </button>
+          <div class="nav-dropdown-divider"></div>
+          <button class="nav-dropdown-item nav-dropdown-logout" onclick="closeNavDropdown();handleLogout()">
+            <span class="nd-icon">🚪</span> Logout
+          </button>
+        </div>
+      </div>
     </div>
   </nav>
   <div class="app-wrap">
@@ -2525,7 +2542,15 @@ th {
           </div>
           <button class="btn btn-primary" style="flex-shrink:0;">Start Now →</button>
         </div>
-        <div class="section-title-sm">Recent Lesson Notes</div>
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;">
+          <div class="section-title-sm" style="margin-bottom:0;">Recent Lesson Notes</div>
+        </div>
+        <div class="notes-search-wrap">
+          <div class="notes-search-wrap-inner">
+            <span class="notes-search-icon">🔍</span>
+            <input class="notes-search-input" id="notes-search" placeholder="Search by subject, topic or framework..." oninput="filterNotes(this.value)" type="text">
+          </div>
+        </div>
         <div class="notes-grid" id="notes-grid">
           <div style="grid-column:1/-1;padding:40px;text-align:center;color:var(--text3);font-size:14px;">
             No lesson notes yet. <a style="color:var(--accent-bright);cursor:pointer;" onclick="go('step1')">Create your first one →</a>
@@ -2807,7 +2832,44 @@ th {
       <div class="sidebar-new"><button class="btn btn-primary btn-full" onclick="go('step1')">+ New Lesson Note</button></div>
     </div>
     <div class="main">
-      <div class="page-header"><h2>📚 Resources</h2><p>Find videos, articles and teaching materials for any subject and topic</p></div>
+      <div class="page-header"><h2>📚 Resources</h2><p>Find materials online or search using the tools below</p></div>
+
+      <!-- ENGINE BUTTONS -->
+      <div class="res-engines-grid" id="res-engines">
+        <a class="res-engine-box eng-video" id="eng-video" href="#" target="_blank" rel="noopener">
+          <span class="res-engine-icon">🎬</span>
+          <span class="res-engine-pill">Videos</span>
+        </a>
+        <a class="res-engine-box eng-images" id="eng-images" href="#" target="_blank" rel="noopener">
+          <span class="res-engine-icon">🖼️</span>
+          <span class="res-engine-pill">Images</span>
+        </a>
+        <a class="res-engine-box eng-pdf" id="eng-pdf" href="#" target="_blank" rel="noopener">
+          <span class="res-engine-icon">📄</span>
+          <span class="res-engine-pill">PDFs</span>
+        </a>
+        <a class="res-engine-box eng-maps" id="eng-maps" href="#" target="_blank" rel="noopener">
+          <span class="res-engine-icon">🗺️</span>
+          <span class="res-engine-pill">Maps</span>
+        </a>
+        <a class="res-engine-box eng-scholar" id="eng-scholar" href="#" target="_blank" rel="noopener">
+          <span class="res-engine-icon">🎓</span>
+          <span class="res-engine-pill">Scholar</span>
+        </a>
+        <a class="res-engine-box eng-wiki" id="eng-wiki" href="#" target="_blank" rel="noopener">
+          <span class="res-engine-icon">📖</span>
+          <span class="res-engine-pill">Wikipedia</span>
+        </a>
+        <a class="res-engine-box eng-slides" id="eng-slides" href="#" target="_blank" rel="noopener">
+          <span class="res-engine-icon">📊</span>
+          <span class="res-engine-pill">Slideshare</span>
+        </a>
+        <a class="res-engine-box eng-khan" id="eng-khan" href="#" target="_blank" rel="noopener">
+          <span class="res-engine-icon">🏫</span>
+          <span class="res-engine-pill">Khan Academy</span>
+        </a>
+      </div>
+
       <div class="res-search-bar">
         <div class="form-row" style="margin-bottom:12px;">
           <div class="form-group" style="margin:0;">
@@ -3499,15 +3561,98 @@ async function handleForgotPassword() {
 }
 
 function setUserUI(fname, lname, email, role, inst) {
-  document.getElementById('nav-username').textContent = fname + ' ' + lname;
-  document.getElementById('dash-greeting').textContent = fname;
-  document.getElementById('profile-name').textContent = fname + ' ' + lname;
+  const fullName = (fname + ' ' + lname).trim() || email;
+  document.getElementById('nav-username').textContent = fullName;
+  document.getElementById('dash-greeting').textContent = fname || 'there';
+  document.getElementById('profile-name').textContent = fullName;
   document.getElementById('profile-avatar').textContent = ((fname||'').charAt(0) + (lname||'').charAt(0)) || '?';
   document.getElementById('profile-role-inst').textContent = [role, inst || 'Institution not set'].filter(Boolean).join(' · ');
   document.getElementById('p-fname').value = fname;
   document.getElementById('p-lname').value = lname;
   document.getElementById('p-email').value = email;
+  // Update dropdown
+  const dropName = document.getElementById('nav-drop-name');
+  const dropMeta = document.getElementById('nav-drop-meta');
+  if(dropName) dropName.textContent = fullName;
+  if(dropMeta) dropMeta.textContent = [role, inst].filter(Boolean).join(' · ') || email;
 }
+
+/* ── NAV DROPDOWN LOGIC ── */
+function toggleNavDropdown(e) {
+  e.stopPropagation();
+  const dd = document.getElementById('nav-dropdown');
+  dd.classList.toggle('open');
+}
+function closeNavDropdown() {
+  const dd = document.getElementById('nav-dropdown');
+  if(dd) dd.classList.remove('open');
+}
+document.addEventListener('click', function(e) {
+  const wrap = document.querySelector('.nav-profile-wrap');
+  if(wrap && !wrap.contains(e.target)) closeNavDropdown();
+});
+
+/* ── NOTES SEARCH FILTER ── */
+function filterNotes(query) {
+  const q = query.toLowerCase().trim();
+  if(!q) { renderSavedNotes(); return; }
+  const filtered = state.savedNotes.filter(function(n) {
+    return (n.subject||'').toLowerCase().includes(q) ||
+           (n.topic||'').toLowerCase().includes(q) ||
+           (n.framework||'').toLowerCase().includes(q);
+  });
+  const grid = document.getElementById('notes-grid');
+  if(!grid) return;
+  if(filtered.length === 0) {
+    grid.innerHTML = '<div style="grid-column:1/-1;padding:40px;text-align:center;color:var(--text3);font-size:14px;">No notes match your search.</div>';
+    return;
+  }
+  grid.innerHTML = filtered.map(function(n) {
+    const realIdx = state.savedNotes.indexOf(n);
+    return '<div class="note-card">' +
+      '<div class="note-card-header">' +
+        '<div>' +
+          '<h4>' + n.topic + ' — ' + n.subject + '</h4>' +
+          '<div class="note-card-meta">' + n.classLevel + ' · ' + n.duration + ' · ' + n.framework + '</div>' +
+        '</div>' +
+        '<span class="badge badge-green">Saved</span>' +
+      '</div>' +
+      '<div class="note-card-actions">' +
+        '<button class="btn btn-outline btn-sm" onclick="viewNote(' + realIdx + ')">View</button>' +
+        '<button class="btn btn-ghost btn-sm" onclick="exportNotePDF(' + realIdx + ')">Export PDF</button>' +
+        '<button class="btn btn-danger btn-sm" onclick="deleteNote(' + realIdx + ', \'' + n.id + '\')">Delete</button>' +
+      '</div>' +
+    '</div>';
+  }).join('');
+}
+
+/* ── RESOURCE ENGINE LINKS ── */
+function updateEngineLinks() {
+  var subj = (document.getElementById('res-subject') ? document.getElementById('res-subject').value : '').trim();
+  var topic = (document.getElementById('res-topic') ? document.getElementById('res-topic').value : '').trim();
+  var q = encodeURIComponent([subj, topic].filter(Boolean).join(' ') || 'teaching resources');
+  var engines = {
+    'eng-video':   'https://www.youtube.com/results?search_query=' + q,
+    'eng-images':  'https://www.google.com/search?tbm=isch&q=' + q,
+    'eng-pdf':     'https://www.google.com/search?q=' + q + '+filetype:pdf',
+    'eng-maps':    'https://www.google.com/maps/search/' + q,
+    'eng-scholar': 'https://scholar.google.com/scholar?q=' + q,
+    'eng-wiki':    'https://en.wikipedia.org/wiki/Special:Search?search=' + q,
+    'eng-slides':  'https://www.slideshare.net/search/slideshow?searchfrom=header&q=' + q,
+    'eng-khan':    'https://www.khanacademy.org/search?page_search_query=' + q
+  };
+  for(var id in engines) {
+    var el = document.getElementById(id);
+    if(el) el.href = engines[id];
+  }
+}
+document.addEventListener('DOMContentLoaded', function() {
+  var resSub = document.getElementById('res-subject');
+  var resTopic = document.getElementById('res-topic');
+  if(resSub) { resSub.addEventListener('change', updateEngineLinks); resSub.addEventListener('input', updateEngineLinks); }
+  if(resTopic) { resTopic.addEventListener('change', updateEngineLinks); resTopic.addEventListener('input', updateEngineLinks); }
+  updateEngineLinks();
+});
 
 // ══════════════════════════════════════════
 // DASHBOARD — REAL DATA
@@ -5065,6 +5210,227 @@ function updateSidebarForRole() {
   }
 }
 
+
+/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+   UPGRADE v2 — Profile Dropdown · Notes Search · Resource Buttons
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
+
+/* ── NAV PROFILE DROPDOWN ── */
+.nav-profile-wrap {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+#nav-username {
+  cursor: pointer !important;
+  user-select: none;
+  transition: color 0.2s;
+}
+#nav-username:hover { color: var(--oryzo-amber) !important; }
+
+.nav-dropdown {
+  position: absolute;
+  top: calc(100% + 12px);
+  right: 0;
+  min-width: 230px;
+  background: linear-gradient(145deg, rgba(13,27,53,0.97), rgba(9,18,42,0.99));
+  border: 1px solid var(--glass-border-bright);
+  border-radius: 16px;
+  backdrop-filter: blur(40px) saturate(1.3);
+  box-shadow: 0 0 0 1px rgba(255,255,255,0.04), 0 24px 60px rgba(0,0,0,0.6), 0 0 40px rgba(217,122,67,0.05);
+  padding: 0;
+  overflow: hidden;
+  z-index: 200;
+  opacity: 0;
+  transform: translateY(-8px) scale(0.97);
+  pointer-events: none;
+  transition: opacity 0.2s cubic-bezier(0.34,1.2,0.64,1), transform 0.2s cubic-bezier(0.34,1.2,0.64,1);
+}
+.nav-dropdown::before {
+  content: '';
+  position: absolute; top: 0; left: 0; right: 0; height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(217,122,67,0.5), rgba(96,165,250,0.4), transparent);
+  animation: borderShimmer 5s ease infinite;
+  background-size: 200% 200%;
+}
+.nav-dropdown.open {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+  pointer-events: all;
+}
+.nav-dropdown-header {
+  padding: 16px 18px 12px;
+  border-bottom: 1px solid rgba(255,255,255,0.05);
+}
+.nav-dropdown-name {
+  font-family: 'Syne', sans-serif;
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text);
+  margin-bottom: 3px;
+}
+.nav-dropdown-meta {
+  font-size: 11px;
+  color: var(--text3);
+  line-height: 1.5;
+}
+.nav-dropdown-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 11px 18px;
+  font-size: 13px;
+  color: var(--text2);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+  border: none;
+  background: none;
+  width: 100%;
+  text-align: left;
+  font-family: 'DM Sans', sans-serif;
+}
+.nav-dropdown-item:hover {
+  background: rgba(217,122,67,0.07);
+  color: var(--oryzo-amber);
+}
+.nav-dropdown-item .nd-icon { font-size: 14px; width: 18px; text-align: center; }
+.nav-dropdown-divider {
+  height: 1px;
+  background: rgba(255,255,255,0.05);
+  margin: 2px 0;
+}
+.nav-dropdown-logout {
+  color: rgba(239,68,68,0.8) !important;
+}
+.nav-dropdown-logout:hover {
+  background: rgba(239,68,68,0.07) !important;
+  color: #EF4444 !important;
+}
+
+/* ── NOTES SEARCH FILTER ── */
+.notes-search-wrap {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+.notes-search-input {
+  flex: 1;
+  padding: 9px 14px 9px 36px;
+  background: var(--surface2);
+  border: 1px solid var(--border2);
+  border-radius: 10px;
+  color: var(--text);
+  font-size: 13px;
+  font-family: 'DM Sans', sans-serif;
+  outline: none;
+  transition: border-color 0.2s, box-shadow 0.2s;
+  position: relative;
+}
+.notes-search-input:focus {
+  border-color: var(--oryzo-amber);
+  box-shadow: 0 0 0 3px rgba(217,122,67,0.1);
+}
+.notes-search-input::placeholder { color: var(--text4); }
+.notes-search-wrap-inner {
+  position: relative;
+  flex: 1;
+}
+.notes-search-icon {
+  position: absolute;
+  left: 12px; top: 50%;
+  transform: translateY(-50%);
+  font-size: 13px;
+  color: var(--text3);
+  pointer-events: none;
+}
+
+/* ── RESOURCE ENGINE BUTTONS (glass 3D boxes) ── */
+.res-engines-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 10px;
+  margin-bottom: 24px;
+}
+.res-engine-box {
+  position: relative;
+  border-radius: 16px;
+  padding: 18px 10px 14px;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  text-decoration: none;
+  border: 1px solid rgba(255,255,255,0.1);
+  background: linear-gradient(145deg, rgba(13,22,48,0.8), rgba(9,15,35,0.95));
+  box-shadow:
+    0 1px 0 rgba(255,255,255,0.06) inset,
+    0 -2px 0 rgba(0,0,0,0.4) inset,
+    0 8px 24px rgba(0,0,0,0.4),
+    0 2px 4px rgba(0,0,0,0.3);
+  transition: transform 0.2s cubic-bezier(0.34,1.2,0.64,1), box-shadow 0.2s;
+  overflow: hidden;
+}
+.res-engine-box::before {
+  content: '';
+  position: absolute; inset: 0;
+  background: var(--eng-glow, rgba(255,255,255,0.03));
+  opacity: 0;
+  transition: opacity 0.25s;
+  border-radius: inherit;
+}
+.res-engine-box:hover::before { opacity: 1; }
+.res-engine-box:hover {
+  transform: translateY(-3px);
+  box-shadow:
+    0 1px 0 rgba(255,255,255,0.08) inset,
+    0 -2px 0 rgba(0,0,0,0.5) inset,
+    0 16px 36px rgba(0,0,0,0.5),
+    0 0 20px var(--eng-shadow, rgba(255,255,255,0.05));
+}
+.res-engine-box:active {
+  transform: translateY(0px);
+  box-shadow:
+    0 1px 0 rgba(255,255,255,0.04) inset,
+    0 -1px 0 rgba(0,0,0,0.3) inset,
+    0 4px 12px rgba(0,0,0,0.3);
+}
+.res-engine-icon { font-size: 22px; }
+.res-engine-pill {
+  background: rgba(255,255,255,0.07);
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 50px;
+  padding: 3px 12px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text2);
+  letter-spacing: 0.3px;
+  white-space: nowrap;
+  backdrop-filter: blur(8px);
+  transition: background 0.2s, color 0.2s, border-color 0.2s;
+}
+.res-engine-box:hover .res-engine-pill {
+  background: var(--eng-pill, rgba(255,255,255,0.1));
+  color: #fff;
+  border-color: rgba(255,255,255,0.2);
+}
+
+/* Individual glow colors */
+.res-engine-box.eng-video   { --eng-glow: rgba(239,68,68,0.06);    --eng-shadow: rgba(239,68,68,0.2);    --eng-pill: rgba(239,68,68,0.15); }
+.res-engine-box.eng-images  { --eng-glow: rgba(59,130,246,0.06);   --eng-shadow: rgba(59,130,246,0.2);   --eng-pill: rgba(59,130,246,0.15); }
+.res-engine-box.eng-pdf     { --eng-glow: rgba(217,122,67,0.07);   --eng-shadow: rgba(217,122,67,0.2);   --eng-pill: rgba(217,122,67,0.15); }
+.res-engine-box.eng-maps    { --eng-glow: rgba(16,185,129,0.06);   --eng-shadow: rgba(16,185,129,0.2);   --eng-pill: rgba(16,185,129,0.15); }
+.res-engine-box.eng-scholar { --eng-glow: rgba(139,92,246,0.06);   --eng-shadow: rgba(139,92,246,0.2);   --eng-pill: rgba(139,92,246,0.15); }
+.res-engine-box.eng-wiki    { --eng-glow: rgba(148,163,184,0.06);  --eng-shadow: rgba(148,163,184,0.2);  --eng-pill: rgba(148,163,184,0.15); }
+.res-engine-box.eng-slides  { --eng-glow: rgba(245,158,11,0.06);   --eng-shadow: rgba(245,158,11,0.2);   --eng-pill: rgba(245,158,11,0.15); }
+.res-engine-box.eng-khan    { --eng-glow: rgba(20,184,166,0.06);   --eng-shadow: rgba(20,184,166,0.2);   --eng-pill: rgba(20,184,166,0.15); }
+
+@media (max-width: 768px) {
+  .res-engines-grid { grid-template-columns: repeat(2, 1fr); }
+  .nav-dropdown { min-width: 200px; }
+}
 </style>
 
 
