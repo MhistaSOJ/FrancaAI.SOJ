@@ -4,6 +4,7 @@ export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  
   if (req.method === 'OPTIONS') return res.status(200).end();
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
 
@@ -32,12 +33,21 @@ export default async function handler(req, res) {
     } else if (provider === 'gemini') {
       const key = process.env.GEMINI_API_KEY;
       if (!key) return res.status(500).json({ error: 'Gemini key not configured' });
-      const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent?key=${key}`, {
+      const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${key}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          contents: [{ parts: [{ text: `${systemPrompt}\n\n${userPrompt}` }] }],
-          generationConfig: { maxOutputTokens: maxTokens, temperature: 0.7 }
+          systemInstruction: {
+            parts: [{ text: systemPrompt }]
+          },
+          contents: [{ 
+            role: 'user',
+            parts: [{ text: userPrompt }] 
+          }],
+          generationConfig: { 
+            maxOutputTokens: maxTokens, 
+            temperature: 0.7 
+          }
         })
       });
       const d = await r.json();
@@ -88,4 +98,3 @@ export default async function handler(req, res) {
     return res.status(500).json({ error: err.message });
   }
 }
-
