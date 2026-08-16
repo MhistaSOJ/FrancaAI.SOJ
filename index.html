@@ -3405,6 +3405,9 @@ body[data-theme="dark"] .auth-right-panel select.spc-input option {
           <button onclick="closeNavDropdown();go('step1')" class="nav-dropdown-item">
             <span>✏️</span> New Lesson Note
           </button>
+          <button id="nav-admin-item" onclick="closeNavDropdown();go('admin')" class="nav-dropdown-item" style="display:none;">
+            <span>⚙️</span> Admin Panel
+          </button>
           <div class="nav-dropdown-divider"></div>
           <button onclick="closeNavDropdown();handleLogout()" class="nav-dropdown-item nav-dropdown-item-danger">
             <span>🚪</span> Logout
@@ -6078,6 +6081,15 @@ function updateSidebarForRole() {
   adminItems.forEach(item => {
     item.style.display = isAdmin() ? 'flex' : 'none';
   });
+  // Mobile nav dropdown's Admin Panel item — the sidebar is hidden below
+  // 768px (see the .sidebar{display:none} media query), so this dropdown
+  // is the only way into /admin on phones. It didn't exist before; the
+  // sidebar-only toggle above silently left mobile admins with no entry
+  // point even though isAdmin() was already true for them.
+  const navAdminItem = document.getElementById('nav-admin-item');
+  if (navAdminItem) {
+    navAdminItem.style.display = isAdmin() ? 'flex' : 'none';
+  }
 }
 
 /* ── FrancaAI Theme Engine JS ── */
