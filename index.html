@@ -4170,6 +4170,42 @@ async function fbResetPassword(email) {
   return data;
 }
 
+
+// ── Token lifecycle (Firebase ID tokens expire after 1 hour) ──
+function storeAuthTokens(data, persist) {
+  state.accessToken = data.idToken;
+  state.refreshToken = data.refreshToken || null;
+  state.tokenExpiry = Date.now() + (Number(data.expiresIn) || 3600) * 1000;
+  if (persist && data.refreshToken) {
+    try { (persist === 'session' ? sessionStorage : localStorage).setItem('franca_refresh', data.refreshToken); } catch(e) {}
+  }
+}
+async function ensureToken() {
+  if (!state.refreshToken) {
+    try { state.refreshToken = localStorage.getItem('franca_refresh') || sessionStorage.getItem('franca_refresh') || null; } catch(e) {}
+  }
+  if (!state.refreshToken) return;
+  if (state.tokenExpiry && Date.now() < state.tokenExpiry - 120000) return;
+  try {
+    const r = await fetch(`https://securetoken.googleapis.com/v1/token?key=${FB_KEY}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: `grant_type=refresh_token&refresh_token=${encodeURIComponent(state.refreshToken)}`
+    });
+    const d = await r.json();
+    if (d.id_token) {
+      state.accessToken = d.id_token;
+      state.refreshToken = d.refresh_token || state.refreshToken;
+      state.tokenExpiry = Date.now() + (Number(d.expires_in) || 3600) * 1000;
+      const store = localStorage.getItem('franca_token') !== null ? localStorage : sessionStorage;
+      try { store.setItem('franca_token', state.accessToken); store.setItem('franca_refresh', state.refreshToken); } catch(e) {}
+    }
+  } catch(e) { console.warn('Token refresh failed:', e); }
+}
+function safeText(v) {
+  return String(v ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
 // ── Firestore helpers ─────────────────────
 function toFirestore(obj) {
   const fields = {};
@@ -4197,6 +4233,7 @@ function fromFirestore(doc) {
 }
 
 async function fbSet(collection, docId, data) {
+  await ensureToken();
   const url = `${FB_DB_URL}/${collection}/${docId}`;
   const res = await fetch(url + `?updateMask.fieldPaths=${Object.keys(data).join('&updateMask.fieldPaths=')}`, {
     method: 'PATCH',
@@ -4212,6 +4249,7 @@ async function fbSet(collection, docId, data) {
 }
 
 async function fbAdd(collection, data) {
+  await ensureToken();
   const res = await fetch(`${FB_DB_URL}/${collection}`, {
     method: 'POST',
     headers: {
@@ -4226,6 +4264,7 @@ async function fbAdd(collection, data) {
 }
 
 async function fbGet(collection, docId) {
+  await ensureToken();
   const res = await fetch(`${FB_DB_URL}/${collection}/${docId}`, {
     headers: { 'Authorization': `Bearer ${state.accessToken}` }
   });
@@ -4235,6 +4274,7 @@ async function fbGet(collection, docId) {
 }
 
 async function fbQuery(collection, field, value) {
+  await ensureToken();
   const res = await fetch(`${FB_DB_BASE}:runQuery`, {
     method: 'POST',
     headers: {
@@ -4255,6 +4295,7 @@ async function fbQuery(collection, field, value) {
 }
 
 async function fbDelete(collection, docId) {
+  await ensureToken();
   await fetch(`${FB_DB_URL}/${collection}/${docId}`, {
     method: 'DELETE',
     headers: { 'Authorization': `Bearer ${state.accessToken}` }
@@ -4262,6 +4303,7 @@ async function fbDelete(collection, docId) {
 }
 
 async function fbGetAll(collection) {
+  await ensureToken();
   const res = await fetch(`${FB_DB_URL}/${collection}`, {
     headers: { 'Authorization': `Bearer ${state.accessToken}` }
   });
@@ -4273,14 +4315,15 @@ async function fbGetAll(collection) {
 // ══════════════════════════════════════════
 // AI ENGINE — SERVER ONLY
 // ══════════════════════════════════════════
-async function aiCall(systemPrompt, userPrompt, maxTokens = 8000) {
+async function aiCall(systemPrompt, userPrompt, maxTokens = 8000, image = null) {
+  await ensureToken();
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 50000); // 50 second timeout
   try {
     const r = await fetch('/api/generate', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ provider: 'gemini', systemPrompt, userPrompt, maxTokens }),
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${state.accessToken || ''}` },
+      body: JSON.stringify({ provider: 'gemini', systemPrompt, userPrompt, maxTokens, image }),
       signal: controller.signal
     });
     clearTimeout(timeout);
@@ -4447,7 +4490,7 @@ async function handleRegister() {
 
   try {
     const data = await fbSignUp(email, pass);
-    state.accessToken = data.idToken;
+    storeAuthTokens(data, 'local');
     state.user = { id: data.localId, fname, lname, email, role, inst };
 
     await fbSet('users', data.localId, {
@@ -4464,8 +4507,9 @@ async function handleRegister() {
     updateSidebarForRole();
     // Directly activate dashboard to avoid any go() guard issues
     document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
-    document.getElementById('dashboard').classList.add('active');
+    document.getElementById(isAdmin() ? 'admin' : 'dashboard').classList.add('active');
     window.scrollTo(0,0);
+    if(isAdmin()) loadAdminData();
     await loadNotes();
     // Persist session
     localStorage.setItem('franca_token', data.idToken);
@@ -4496,7 +4540,8 @@ async function handleLogin() {
 
   try {
     const data = await fbSignIn(email, pass);
-    state.accessToken = data.idToken;
+    const rememberPref = document.getElementById('login-remember')?.checked;
+    storeAuthTokens(data, rememberPref !== false ? 'local' : 'session');
     const userEmail = email.toLowerCase();
 
     // Show dashboard immediately after sign-in succeeds
@@ -4504,8 +4549,10 @@ async function handleLogin() {
     setUserUI('', '', userEmail, '', '');
     updateSidebarForRole();
     document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
-    document.getElementById('dashboard').classList.add('active');
+    // The admin email always lands on the Admin Panel; everyone else on the dashboard
+    document.getElementById(isAdmin() ? 'admin' : 'dashboard').classList.add('active');
     window.scrollTo(0,0);
+    if(isAdmin()) loadAdminData();
     toast('\u2713 Logged in successfully', 'success');
     if(btn) { btn.disabled = false; btn.innerHTML = 'SIGN IN'; }
 
@@ -4959,6 +5006,7 @@ CONTENT QUALITY RULES (NON-NEGOTIABLE)
 12. Use real ${subject} content: actual formulas, real calculations, real terminology, real Nigerian curriculum examples.
 13. Non-steps sections must be deeply detailed and framework-authentic — not just labels with vague text.
 14. CRITICAL: Generate ONLY the sections of the ${fw} framework. Do NOT mix in sections from other frameworks.
+15. ALIGNMENT: Wherever objectives appear, write them as measurable outcomes starting with an action verb at a suitable Bloom's taxonomy level (for example define, calculate, analyse). Every activity, question and assessment task must match at least one stated objective and the same level of thinking.
 
 JSON OUTPUT FORMAT:
 {
@@ -5672,8 +5720,9 @@ async function findResources() {
   try {
     const raw = await aiCall(
       'You are FrancaAI. Respond with valid JSON only — no markdown.',
-      `Generate 6 educational resources for teaching ${subject} - ${topic} at secondary school level in Nigeria.
-Return JSON only: {"resources": [{"type": "YouTube Video|Article|Teaching Tip|Diagram|Activity|Reference", "title": "...", "description": "...", "color": "#3B82F6"}]}`,
+      `Suggest 6 types of educational resources for teaching ${subject} - ${topic} at secondary school level in Nigeria.
+IMPORTANT: Do NOT invent specific video titles, channel names, authors, book titles or URLs. Describe the kind of resource that would help and give a short search phrase the teacher can type into a search engine.
+Return JSON only: {"resources": [{"type": "Video|Article|Teaching Tip|Diagram|Activity|Reference", "title": "short name of the resource idea", "description": "what to look for and how to use it", "search": "search phrase", "color": "#3B82F6"}]}`,
       800
     );
     const parsed = JSON.parse(raw.replace(/```json|```/g,'').trim());
@@ -5685,7 +5734,7 @@ Return JSON only: {"resources": [{"type": "YouTube Video|Article|Teaching Tip|Di
       {type:'Teaching Tip',title:`Making ${topic} Hands-On`,description:`Practical demonstration ideas using locally available materials to make ${topic} tangible and memorable.`,color:'#10B981'},
       {type:'Diagram',title:`${topic} Process Chart (Printable)`,description:`A4 printable visual chart showing key processes — ideal for classroom display or student handouts.`,color:'#F59E0B'},
       {type:'Activity',title:`${topic} Group Discovery Activity`,description:`Structured group activity where students explore ${topic} through guided inquiry and peer discussion.`,color:'#8B5CF6'},
-      {type:'Reference',title:`${subject} Curriculum Guide — ${topic}`,description:`Official WAEC and NERDC curriculum coverage for ${topic} including exam objectives and weighting.`,color:'#06B6D4'}
+      {type:'Reference',title:`${subject} Curriculum Guide — ${topic}`,description:`Look for the official curriculum guide and past exam questions that cover ${topic} (check the exam body or ministry website).`,color:'#06B6D4'}
     ]);
   }
 
@@ -5695,11 +5744,13 @@ Return JSON only: {"resources": [{"type": "YouTube Video|Article|Teaching Tip|Di
 
 function renderResources(resources) {
   const grid = document.getElementById('res-results');
-  grid.innerHTML = resources.map(r => `
+  const notice = `<div style="grid-column:1/-1;font-size:12px;color:var(--text3);padding:0 2px 6px;">AI-suggested ideas, not verified links. Use the search buttons above to find real material, and check anything before you use it in class.</div>`;
+  grid.innerHTML = notice + resources.map(r => `
     <div class="res-card">
-      <div class="res-type" style="color:${r.color||'var(--accent-bright)'};">${r.type}</div>
-      <h4>${r.title}</h4>
-      <p>${r.description}</p>
+      <div class="res-type" style="color:${/^#[0-9a-fA-F]{3,8}$/.test(r.color||'') ? r.color : 'var(--accent-bright)'};">${safeText(r.type)}</div>
+      <h4>${safeText(r.title)}</h4>
+      <p>${safeText(r.description)}</p>
+      ${r.search ? `<p style="font-size:12px;color:var(--text3);margin-top:6px;">Search: <em>${safeText(r.search)}</em></p>` : ''}
     </div>
   `).join('');
 }
@@ -5776,6 +5827,21 @@ function handleSnapUpload(event) {
   if(file) processSnapFile(file);
 }
 
+function shrinkImage(dataUrl, maxDim = 1280) {
+  return new Promise((resolve, reject) => {
+    const im = new Image();
+    im.onload = () => {
+      const scale = Math.min(1, maxDim / Math.max(im.width, im.height));
+      const c = document.createElement('canvas');
+      c.width = Math.round(im.width * scale); c.height = Math.round(im.height * scale);
+      c.getContext('2d').drawImage(im, 0, 0, c.width, c.height);
+      resolve({ mimeType: 'image/jpeg', data: c.toDataURL('image/jpeg', 0.8).split(',')[1] });
+    };
+    im.onerror = () => reject(new Error('Could not read the image'));
+    im.src = dataUrl;
+  });
+}
+
 function processSnapFile(file) {
   const reader = new FileReader();
   reader.onload = async (e) => {
@@ -5788,10 +5854,12 @@ function processSnapFile(file) {
     // Auto-extract info from image using server
     document.getElementById('snap-processing').style.display = 'block';
     try {
-      const b64data = base64.split(',')[1];
+      const img = await shrinkImage(base64);
       const raw = await aiCall(
-        'You are FrancaAI. Extract lesson information from this image. Return JSON only.',
-        `Extract subject, topic, class level, and any notes from this image. Return JSON: {"subject":"...","topic":"...","classLevel":"...","priorNotes":"...","extractedContent":"..."}`
+        'You are FrancaAI. Extract lesson information from the attached image of a note or textbook page. Return JSON only. If something is not visible in the image, leave it as an empty string — never guess.',
+        `Read the attached image. Extract subject, topic, class level, and any notes visible in it. Return JSON: {"subject":"...","topic":"...","classLevel":"...","priorNotes":"...","extractedContent":"..."}`,
+        1500,
+        img
       );
       const parsed = JSON.parse(raw.replace(/```json|```/g,'').trim());
 
@@ -6025,6 +6093,10 @@ function handleLogout() {
   state.savedNotes = [];
   state.generatedSections = [];
   state.lessonInfo = {};
+  state.refreshToken = null;
+  state.tokenExpiry = 0;
+  localStorage.removeItem('franca_refresh');
+  sessionStorage.removeItem('franca_refresh');
   localStorage.removeItem('franca_token');
   localStorage.removeItem('franca_user');
   sessionStorage.removeItem('franca_token');
@@ -6053,7 +6125,9 @@ function handleLogout() {
     setUserUI(u.fname, u.lname, u.email, u.role, u.inst);
     updateSidebarForRole();
     document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
-    document.getElementById('dashboard').classList.add('active');
+    document.getElementById(isAdmin() ? 'admin' : 'dashboard').classList.add('active');
+    await ensureToken();
+    if(isAdmin()) loadAdminData();
     await loadNotes();
   } catch(e) {
     localStorage.removeItem('franca_token');
@@ -6123,7 +6197,7 @@ function francaToggleTheme() {
     <div style="margin-bottom:32px;">
       <p style="color:var(--accent3);font-size:12px;font-weight:700;letter-spacing:2px;text-transform:uppercase;margin-bottom:8px;">Legal</p>
       <h1 style="font-family:'Syne',sans-serif;font-size:36px;font-weight:800;color:var(--text);margin-bottom:12px;">Terms of Service</h1>
-      <p style="color:var(--text2);font-size:14px;">Last updated: June 2025 · FrancaAI is a product of SOJ Technologies.</p>
+      <p style="color:var(--text2);font-size:14px;">Last updated: October 2026 · FrancaAI is a product of SOJ Technologies.</p>
     </div>
 
     <div style="display:flex;flex-direction:column;gap:28px;color:var(--text2);font-size:15px;line-height:1.8;">
@@ -6200,7 +6274,7 @@ function francaToggleTheme() {
     <div style="margin-bottom:32px;">
       <p style="color:var(--accent3);font-size:12px;font-weight:700;letter-spacing:2px;text-transform:uppercase;margin-bottom:8px;">Legal</p>
       <h1 style="font-family:'Syne',sans-serif;font-size:36px;font-weight:800;color:var(--text);margin-bottom:12px;">Privacy Policy</h1>
-      <p style="color:var(--text2);font-size:14px;">Last updated: June 2025 · FrancaAI is a product of SOJ Technologies.</p>
+      <p style="color:var(--text2);font-size:14px;">Last updated: October 2026 · FrancaAI is a product of SOJ Technologies.</p>
     </div>
 
     <div style="display:flex;flex-direction:column;gap:28px;color:var(--text2);font-size:15px;line-height:1.8;">
@@ -6217,17 +6291,17 @@ function francaToggleTheme() {
 
       <section>
         <h2 style="font-family:'Syne',sans-serif;font-size:18px;font-weight:700;color:var(--text);margin-bottom:10px;">3. How We Use Your Information</h2>
-        <p>We use your information to: provide and improve the FrancaAI service, authenticate your account, send service-related communications, and ensure platform security. We do not use your data for advertising.</p>
+        <p>We use your information to: provide and improve the FrancaAI service, authenticate your account, send service-related communications, and ensure platform security. We do not use your data for advertising. <strong style="color:var(--text);">AI processing:</strong> the lesson details you enter (subject, topic, class level, duration, and any notes or images you add) are sent through our server to Google&rsquo;s Gemini AI service to generate your content. Please do not enter personal information about students or other people in these fields.</p>
       </section>
 
       <section>
         <h2 style="font-family:'Syne',sans-serif;font-size:18px;font-weight:700;color:var(--text);margin-bottom:10px;">4. Data Security</h2>
-        <p>Your personal information is stored securely using industry-standard encryption and security measures provided by Firebase (Google Cloud). We implement technical and organisational safeguards to protect your data from unauthorised access, loss, or disclosure.</p>
+        <p>Your account details and saved lesson notes are stored using Firebase (Google Cloud), which encrypts data in transit and at rest by default. We apply access controls to limit who can read your records, but no online system can be guaranteed to be completely secure.</p>
       </section>
 
       <section>
         <h2 style="font-family:'Syne',sans-serif;font-size:18px;font-weight:700;color:var(--text);margin-bottom:10px;">5. We Never Sell Your Data</h2>
-        <p><strong style="color:var(--text);">SOJ Technologies does not sell, rent, or trade your personal information to any third party.</strong> Your data is used solely to operate and improve the FrancaAI platform.</p>
+        <p><strong style="color:var(--text);">SOJ Technologies does not sell, rent, or trade your personal information.</strong> We share data only with the service providers needed to run FrancaAI: Firebase (authentication and database), Vercel (hosting), and Google&rsquo;s Gemini (AI generation). Your data is used solely to operate and improve the platform.</p>
       </section>
 
       <section>

@@ -1,0 +1,32 @@
+rules_version = '2';
+// Paste into Firebase Console > Firestore Database > Rules, then Publish.
+// Ordinary users can only touch their own records; the admin email can read everything.
+// The admin account must have a VERIFIED email address (Firebase sends the verification mail at sign-up).
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() { return request.auth != null; }
+    function isAdmin() {
+      return signedIn()
+        && request.auth.token.email == 'successjoe41@gmail.com'
+        && request.auth.token.email_verified == true;
+    }
+
+    match /users/{uid} {
+      allow read: if signedIn() && (request.auth.uid == uid || isAdmin());
+      allow create, update: if signedIn() && request.auth.uid == uid;
+      allow delete: if isAdmin();
+    }
+
+    match /lesson_notes/{noteId} {
+      allow create: if signedIn() && request.resource.data.user_id == request.auth.uid;
+      allow read, update, delete: if signedIn() && (resource.data.user_id == request.auth.uid || isAdmin());
+    }
+
+    match /feedback/{fid} {
+      allow create: if signedIn() && request.resource.data.user_id == request.auth.uid;
+      allow read: if isAdmin();
+      allow update, delete: if isAdmin();
+    }
+  }
+}
