@@ -4839,6 +4839,16 @@ async function startGeneration() {
       const ai = sections.findIndex(x => /^class (objectives|information)/i.test(String(x.name || '')) || String(x.letter || '') === 'A');
       if(ai >= 0) sections[ai] = ci; else sections.unshift(ci);
     }
+    // If the reply was cut off, add the missing sections as templates and let AI fill them in below
+    let missingNames = [];
+    try {
+      const have = new Set(sections.map(x => String(x.letter || '')));
+      getFallbackSections().forEach(f => {
+        if(f.letter === (main && main[0]) || have.has(f.letter)) return;
+        const c = Object.assign({}, f); c._missing = true; sections.push(c); missingNames.push(f.name);
+      });
+      sections.sort((a, b) => String(a.letter || '').localeCompare(String(b.letter || '')));
+    } catch(e) {}
     if(main) {
       sections = sections.filter(x => !x.isSteps && x.name !== main[1]);
       if(!sections.length) throw new Error('No sections in AI response');
@@ -4860,6 +4870,11 @@ async function startGeneration() {
       renderOutput();
     }
     go('output');
+    for(const sec of state.generatedSections.slice()) {
+      if(!sec._missing) continue;
+      const idx = state.generatedSections.indexOf(sec);
+      if(idx >= 0) { try { await regenSection(idx); } catch(e) {} delete sec._missing; }
+    }
     loadSectionImages();
   } catch(err) {
     console.error('Generation error:', err);
