@@ -3567,6 +3567,11 @@ body[data-theme="dark"] .auth-right-panel select.spc-input option {
           <textarea class="form-textarea" id="f-prior" placeholder="Describe what students already know about this topic..."></textarea>
         </div>
 
+        <div class="form-group">
+          <label class="form-label">Your Notes / Content to Include <span style="color:var(--text3);font-weight:400;text-transform:none;">(optional)</span></label>
+          <textarea class="form-textarea" id="f-notes" placeholder="Paste or type your own lesson notes here. FrancaAI will use them as the main source and fill any gaps from its knowledge of the topic."></textarea>
+        </div>
+
         <!-- SNAP NOTE OPTION -->
         <div style="margin-bottom:20px;">
           <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px;">
@@ -4318,7 +4323,7 @@ async function fbGetAll(collection) {
 async function aiCall(systemPrompt, userPrompt, maxTokens = 8000, image = null) {
   await ensureToken();
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 50000); // 50 second timeout
+  const timeout = setTimeout(() => controller.abort(), 58000); // 58 second timeout (server limit is 60s)
   try {
     const r = await fetch('/api/generate', {
       method: 'POST',
@@ -4762,7 +4767,8 @@ function goStep2() {
   state.lessonInfo = {
     subject, topic, classLevel, duration,
     students: document.getElementById('f-students').value,
-    prior: document.getElementById('f-prior').value
+    prior: document.getElementById('f-prior').value,
+    notes: (document.getElementById('f-notes') || {}).value || ''
   };
   go('step2');
 }
@@ -4806,22 +4812,9 @@ async function startGeneration() {
     const raw = await aiCall(
       'You are FrancaAI, an expert Nigerian curriculum lesson planner. Respond with ONLY a valid JSON object — no text before or after, no markdown code fences. Inside content fields, use markdown formatting: **bold** for headings and key terms, ## for section headers, | tables | for tabular data, - for bullet lists, and numbered lists where appropriate. Separate Teacher Activity and Student Activity clearly using **Teacher Activity:** and **Student Activity:** labels.',
       prompt,
-      6000
+      8000
     );
-    const cleaned = raw.replace(/```json|```/g,'').trim();
-    let parsed;
-    try {
-      parsed = JSON.parse(cleaned);
-    } catch(parseErr) {
-      console.error('Parse error:', parseErr.message);
-      console.error('Cleaned content:', cleaned.substring(0, 1000));
-      const jsonMatch = cleaned.match(/{[\s\S]*}/);
-      if(jsonMatch) {
-        parsed = JSON.parse(jsonMatch[0]);
-      } else {
-        throw new Error('JSON parse failed: ' + parseErr.message);
-      }
-    }
+    const parsed = repairJson(raw);
     const sections = parsed.sections || (Array.isArray(parsed) ? parsed : null);
     if(!sections || !sections.length) throw new Error('No sections in AI response');
     state.generatedSections = sections;
@@ -4840,9 +4833,12 @@ async function startGeneration() {
 }
 
 function buildPrompt() {
-  const { subject, topic, classLevel, duration, students, prior } = state.lessonInfo;
+  const { subject, topic, classLevel, duration, students, prior, notes } = state.lessonInfo;
   const fw = state.framework;
   const durationMins = parseInt(duration) || 40;
+  const sourceNotes = [notes, state.snapExtractedContent].filter(Boolean).join('\n\n').slice(0, 12000);
+  const isComes = fw === 'COMES MPESA';
+  const c1 = Math.round(durationMins * 0.2), c2 = Math.round(durationMins * 0.5), c3 = Math.round(durationMins * 0.8);
   const s1 = Math.round(durationMins * 0.18);
   const s2 = Math.round(durationMins * 0.38);
   const s3 = Math.round(durationMins * 0.58);
@@ -4865,7 +4861,7 @@ E — SET INDUCTION: Design a creative, engaging 5-minute hook that captures stu
 
 F — INSTRUCTIONAL METHOD: State the primary teaching method(s) to be used and WHY they suit ${topic} at ${classLevel} level. E.g. Question & Answer, Demonstration, Discussion, Inquiry-Based. Explain how this method will be applied throughout the lesson.
 
-G — INSTRUCTIONAL PROCEDURE: This is the MAIN TEACHING SECTION. Use isSteps: true with 5 progressive steps. Each step must have teacherGuide (facilitation only), studentNotes (real academic content), visualBlock (mandatory table/formula/diagram), examples (worked solutions), quickCheck (real question + answer). Steps must be progressive — each teaching something new.
+G — INSTRUCTIONAL PROCEDURE: This is the MAIN TEACHING SECTION. Use isSteps: true with EXACTLY 4 steps titled Introduction, Development I, Development II and Conclusion. Under every step write the ACTUAL LESSON NOTE for ${topic}: the content the teacher teaches and the students copy, not a description of it. Each step has teacherActivity, studentActivity and lessonNote, and must say which instructional objective(s) (B) it achieves. Each step must have teacherGuide (facilitation only), studentNotes (real academic content), visualBlock (mandatory table/formula/diagram), examples (worked solutions), quickCheck (real question + answer). Steps must be progressive — each teaching something new.
 
 H — EVALUATION: Write 5 specific oral or written questions that test understanding of ${topic} at different Bloom's levels. Include at least one application-level question. Questions must be answerable from what was taught.
 
@@ -4981,7 +4977,7 @@ Generate a complete, authentic lesson note for ${subject} — ${topic} at ${clas
 
 LESSON INFO:
 Subject: ${subject} | Topic: ${topic} | Class: ${classLevel} | Duration: ${duration}${students ? ` | Students: ${students}` : ''}${prior ? ` | Prior knowledge: ${prior}` : ''}
-
+${sourceNotes ? `\nSOURCE MATERIAL FROM THE USER (use this as the PRIMARY content of the lesson: keep its definitions, facts, examples and terms, and organise them into the sections. Only add from your own knowledge of ${topic} where it is missing or unclear. Never contradict it):\n"""\n${sourceNotes}\n"""\n` : ''}
 ═══════════════════════════════════════
 FRAMEWORK EXPERTISE: ${fw}
 ═══════════════════════════════════════
@@ -4993,9 +4989,12 @@ SECTIONS TO GENERATE: ${cfg.sections}
 CONTENT QUALITY RULES (NON-NEGOTIABLE)
 ═══════════════════════════════════════
 1. Every section must contain REAL, ACCURATE, SUBJECT-SPECIFIC content for ${subject} — ${topic}. NEVER write generic placeholders.
-2. The main teaching section ("${cfg.mainSection}") uses isSteps:true with exactly 5 progressive steps.
-3. Step timings: 0-${s1}min, ${s1}-${s2}min, ${s2}-${s3}min, ${s3}-${s4}min, ${s4}-${durationMins}min
-4. EVERY step MUST have ALL 5 blocks: teacherGuide, studentNotes, visualBlock, examples, quickCheck
+${isComes ? `2. The main teaching section ("${cfg.mainSection}") uses isSteps:true with EXACTLY 4 steps, in this order: "Introduction", "Development I", "Development II", "Conclusion".
+3. Step timings: 0-${c1}min, ${c1}-${c2}min, ${c2}-${c3}min, ${c3}-${durationMins}min.
+16. PROCEDURE = REAL LESSON NOTES. Under each step, lessonNote must contain the full notes on ${topic} for that stage (definitions, explanation, key points, formulas or processes, examples), written so the teacher can copy it to the board and students can copy it into their notebooks. Introduction links set induction (E) and entry behaviour (D) to the first new idea. Development I and II teach the content in logical order. Conclusion summarises (I) and leads into evaluation (H). studentActivity says exactly what students do (answer, write, draw, discuss, solve). teacherActivity says exactly what the teacher does and asks.
+17. ALIGNMENT CHECK: every instructional objective (B) must be taught in at least one step and tested by at least one evaluation question (H); materials (C) listed must be used in the steps; the method (F) must be the method used in the steps; the summary (I) and assignment (J) must restate and extend what the steps taught. Use the same terms and numbers everywhere.` : `2. The main teaching section ("${cfg.mainSection}") uses isSteps:true with exactly 5 progressive steps.
+3. Step timings: 0-${s1}min, ${s1}-${s2}min, ${s2}-${s3}min, ${s3}-${s4}min, ${s4}-${durationMins}min`}
+4. EVERY step MUST have ALL blocks: teacherGuide, studentActivity, studentNotes, visualBlock, examples, quickCheck
 5. teacherGuide = ONLY teacher facilitation actions (questions to ask, board instructions, how to manage activity). Zero subject content here.
 6. studentNotes = textbook-quality academic content: real definitions, accurate formulas, structured explanations, bullet points — content a student copies and studies from.
 7. visualBlock is MANDATORY every step — use table, formula block, diagram description, or comparison chart. NEVER omit.
@@ -5015,7 +5014,8 @@ JSON OUTPUT FORMAT:
     {"letter":"${cfg.mainLetter}","name":"${cfg.mainSection}","isSteps":true,"steps":[
       {"stepNumber":1,"stepTitle":"Specific title for step 1","duration":"0-${s1} mins","objective":"measurable objective for this step",
        "teacherGuide":"• Action 1\\n• Question to ask\\n• Board instruction\\n• Management tip",
-       "studentNotes":"Full academic content: definition, explanation, formula, key points — copy-worthy notes",
+       "studentActivity":"• What students do, say, write or solve in this step",
+       "studentNotes":"Full academic content: definition, explanation, formula, key points — copy-worthy notes (for COMES MPESA this is the lessonNote)",
        "visualBlock":{"type":"table","title":"Descriptive title","content":"| Column A | Column B | Column C |\\n|---|---|---|\\n| real data | real data | real data |"},
        "examples":[{"title":"Worked Example","problem":"Specific problem using real values","solution":"Step 1: ...\\nStep 2: ...\\nStep 3: ...","answer":"The exact final answer"}],
        "quickCheck":{"type":"short-answer","prompt":"Specific question about this step's content","answer":"Correct answer"}}
@@ -5229,13 +5229,19 @@ function renderStepsContent(steps) {
 
         ${step.teacherGuide ? `
         <div class="teacher-guide-block">
-          <div class="block-label teacher">🎓 Teacher Guide</div>
+          <div class="block-label teacher">🎓 Teacher Activity</div>
           <div class="block-content">${formatContent(step.teacherGuide)}</div>
+        </div>` : ''}
+
+        ${step.studentActivity ? `
+        <div class="teacher-guide-block">
+          <div class="block-label student">🧑‍🎓 Student Activity</div>
+          <div class="block-content">${formatContent(step.studentActivity)}</div>
         </div>` : ''}
 
         ${step.studentNotes ? `
         <div class="student-notes-block">
-          <div class="block-label student">📝 Student Notes</div>
+          <div class="block-label student">📝 Lesson Note</div>
           <div class="block-content">${formatContent(step.studentNotes)}</div>
         </div>` : ''}
 
@@ -5344,7 +5350,42 @@ function parseTable(lines, startIdx) {
   return { html, endIdx: i };
 }
 
+function toText(v) {
+  if(v == null) return '';
+  if(typeof v === 'string') return v;
+  if(Array.isArray(v)) return v.map(toText).filter(Boolean).join('\n');
+  if(typeof v === 'object') return Object.entries(v).map(([k,x]) => {
+    const t = toText(x);
+    return t ? `**${k.replace(/([A-Z])/g,' $1').replace(/^./,c=>c.toUpperCase())}:** ${t}` : '';
+  }).filter(Boolean).join('\n');
+  return String(v);
+}
+
+function repairJson(raw) {
+  // Recovers a usable object from a reply that was cut off or wrapped in text
+  let t = String(raw||'').replace(/```json|```/g,'').trim();
+  try { return JSON.parse(t); } catch(e) {}
+  const a = t.indexOf('{'); if(a < 0) throw new Error('No JSON in AI reply');
+  t = t.slice(a);
+  try { return JSON.parse(t.slice(0, t.lastIndexOf('}') + 1)); } catch(e) {}
+  for(let cut = t.length; cut > 0; cut = t.lastIndexOf('}', cut - 1)) {
+    if(cut < 0) break;
+    let head = t.slice(0, cut + 1), stack = [], inStr = false, esc = false;
+    for(const ch of head) {
+      if(inStr) { if(esc) esc = false; else if(ch === '\\') esc = true; else if(ch === '"') inStr = false; continue; }
+      if(ch === '"') inStr = true; else if(ch === '{' || ch === '[') stack.push(ch);
+      else if(ch === '}' || ch === ']') stack.pop();
+    }
+    if(inStr) continue;
+    const close = stack.reverse().map(c => c === '{' ? '}' : ']').join('');
+    try { return JSON.parse(head + close); } catch(e) {}
+    if(cut === 0) break;
+  }
+  throw new Error('AI reply was cut off and could not be repaired');
+}
+
 function formatContent(text) {
+  text = toText(text);
   if(!text) return '';
   const lines = text.split('\n');
   let html = '';
@@ -5515,26 +5556,50 @@ async function regenSection(i) {
   try {
     const { subject, topic, classLevel, duration } = state.lessonInfo;
 
-    const isSteps = sec.isSteps && sec.steps;
-    const sysPrompt = 'You are FrancaAI. Respond with valid JSON only — no markdown, no extra text.';
+    const MAIN = ['Instructional Procedure','Development','Explain','Presentation','Instructional Strategy','Content Sequencing','Main Teaching Section'];
+    const isSteps = !!(sec.isSteps || MAIN.includes(sec.name));
+    const isComes = state.framework === 'COMES MPESA';
+    const nSteps = isComes ? 4 : 5;
+    const d = parseInt(duration) || 40;
+    const c1 = Math.round(d*0.2), c2 = Math.round(d*0.5), c3 = Math.round(d*0.8);
+    const timing = isComes ? `0-${c1}, ${c1}-${c2}, ${c2}-${c3}, ${c3}-${d} mins` : '';
+    const sourceNotes = [state.lessonInfo.notes, state.snapExtractedContent].filter(Boolean).join('\n\n').slice(0, 12000);
+    // The other sections, so the regenerated one stays aligned with them
+    const others = state.generatedSections.map((x, k) => {
+      if(k === i) return '';
+      const body = x.isSteps && x.steps ? x.steps.map(st => `${st.stepTitle}: ${toText(st.objective)}`).join('; ') : toText(x.content);
+      return `${x.letter}. ${x.name}: ${body.slice(0, 700)}`;
+    }).filter(Boolean).join('\n');
+    const context = `Framework: ${state.framework}
+Subject: ${subject}, Topic: ${topic}, Class: ${classLevel}, Duration: ${duration}.
+${sourceNotes ? `SOURCE MATERIAL FROM THE USER (use as the primary content, add from your own knowledge only where it is missing):\n"${sourceNotes}"\n` : ''}
+OTHER SECTIONS OF THIS LESSON NOTE (the new content MUST agree with them: same objectives, terms, materials, method and level):
+${others}`;
+
+    const sysPrompt = 'You are FrancaAI. Respond with valid JSON only — no markdown fences, no extra text. Every field named content, teacherGuide, studentActivity and studentNotes must be a plain STRING (use \\n for new lines), never an array or object.';
     const userPrompt = isSteps
-      ? `Regenerate the "${sec.name}" section (teaching steps) for:
-Subject: ${subject}, Topic: ${topic}, Class: ${classLevel}, Duration: ${duration}.
-Generate 5 progressive steps. Each step must have: stepNumber, stepTitle, duration, objective, teacherGuide, studentNotes, visualBlock (with type, title, content), examples (array with title, problem, solution, answer), quickCheck (with type, prompt, answer).
+      ? `${context}
+
+Regenerate the "${sec.name}" section as exactly ${nSteps} steps${isComes ? ` titled Introduction, Development I, Development II, Conclusion (timings ${timing})` : ''}.
+Under each step write the ACTUAL LESSON NOTE on ${topic}: real definitions, explanations, key points and examples that the teacher writes on the board and students copy. Link each step to the instructional objective(s) it achieves, and make sure every objective is taught.
+Each step must have: stepNumber, stepTitle, duration, objective, teacherGuide (what the teacher does and asks), studentActivity (what students do), studentNotes (the full lesson note), visualBlock (type, title, content), examples (array with title, problem, solution, answer), quickCheck (type, prompt, answer).
 Respond with JSON: {"steps": [...], "smartPickRecommendation": "..."}`
-      : `Regenerate the "${sec.name}" section for:
-Subject: ${subject}, Topic: ${topic}, Class: ${classLevel}, Duration: ${duration}.
-Make it rich, detailed and academically accurate.
-Respond with JSON: {"content": "detailed content here", "smartPickRecommendation": "recommendation here"}`;
+      : `${context}
 
-    const raw = await aiCall(sysPrompt, userPrompt, 3000);
-    const cleaned = raw.replace(/```json|```/g,'').trim();
-    const parsed = JSON.parse(cleaned);
+Regenerate the "${sec.name}" section. Make it rich, detailed, academically accurate, specific to ${topic}, and consistent with the other sections above.
+Respond with JSON: {"content": "detailed content as ONE string", "smartPickRecommendation": "recommendation here"}`;
 
-    if(isSteps && parsed.steps) {
+    const raw = await aiCall(sysPrompt, userPrompt, isSteps ? 6000 : 3000);
+    const parsed = repairJson(raw);
+    if(Array.isArray(parsed.steps)) parsed.steps = parsed.steps.filter(x => x && typeof x === 'object');
+    if(parsed.content != null) parsed.content = toText(parsed.content);
+
+    if(isSteps && parsed.steps && parsed.steps.length) {
       state.generatedSections[i].steps = parsed.steps;
+      state.generatedSections[i].isSteps = true;
       document.getElementById(`sec-content-${i}`).innerHTML = renderStepsContent(parsed.steps);
     } else if(parsed.content) {
+      state.generatedSections[i].isSteps = false;
       state.generatedSections[i].content = parsed.content;
       document.getElementById(`sec-content-${i}`).innerHTML = formatContent(parsed.content);
     }
@@ -5640,12 +5705,15 @@ function exportPDF() {
     if(sec.isSteps && sec.steps) {
       // Handle step-based sections in PDF
       content = sec.steps.map(step => {
-        const notes = step.studentNotes ? `<p><strong>${step.stepTitle}:</strong> ${step.studentNotes}</p>` : '';
+        const bits = [];
+        if(step.teacherGuide) bits.push(`<p><strong>Teacher Activity:</strong><br>${toText(step.teacherGuide).replace(/\n/g,'<br>')}</p>`);
+        if(step.studentActivity) bits.push(`<p><strong>Student Activity:</strong><br>${toText(step.studentActivity).replace(/\n/g,'<br>')}</p>`);
+        const notes = `<h3>${step.stepTitle || ''} ${step.duration ? '('+step.duration+')' : ''}</h3>` + bits.join('') + (step.studentNotes ? `<p><strong>Lesson Note:</strong><br>${toText(step.studentNotes).replace(/\n/g,'<br>')}</p>` : '');
         const qc = step.quickCheck ? `<p><em>Quick Check: ${step.quickCheck.prompt}</em></p>` : '';
         return notes + qc;
       }).join('');
     } else {
-      content = (sec.content || '').split('\n').map(l => {
+      content = toText(sec.content).split('\n').map(l => {
         if(l.startsWith('- ')) return `<ul><li>${l.slice(2)}</li></ul>`;
         if(l.match(/^\d+\./)) return `<ul><li>${l.replace(/^\d+\.\s*/,'')}</li></ul>`;
         return l ? `<p>${l}</p>` : '';
@@ -5858,7 +5926,7 @@ function processSnapFile(file) {
       const raw = await aiCall(
         'You are FrancaAI. Extract lesson information from the attached image of a note or textbook page. Return JSON only. If something is not visible in the image, leave it as an empty string — never guess.',
         `Read the attached image. Extract subject, topic, class level, and any notes visible in it. Return JSON: {"subject":"...","topic":"...","classLevel":"...","priorNotes":"...","extractedContent":"..."}`,
-        1500,
+        3000,
         img
       );
       const parsed = JSON.parse(raw.replace(/```json|```/g,'').trim());
