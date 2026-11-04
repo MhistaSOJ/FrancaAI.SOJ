@@ -3650,7 +3650,7 @@ body[data-theme="dark"] .auth-right-panel select.spc-input option {
             <div class="fw-tag" style="background:rgba(217,122,67,0.12);color:#D97A43;border:1px solid rgba(217,122,67,0.25);">SOJ's Method</div>
           </div>
           <div class="fw-name" style="margin-top:56px;">COMES MPESA</div>
-          <div class="fw-desc">Class Objectives · Instructional Objectives · Instructional Materials · Entry Behaviour · Set Induction · Instructional Method · Instructional Procedure · Evaluation · Summary · Assignment</div>
+          <div class="fw-desc">Class Information · Instructional Objectives · Instructional Materials · Entry Behaviour · Set Induction · Instructional Method · Instructional Procedure · Evaluation · Summary · Assignment</div>
         </div>
         <div class="fw-card" data-fw="ADDIE" onclick="selectFW(this)">
           <div class="fw-check">✓</div>
@@ -4834,6 +4834,11 @@ async function startGeneration() {
     let sections = parsed.sections || (Array.isArray(parsed) ? parsed : null);
     if(!sections || !sections.length) throw new Error('No sections in AI response');
     sections = sections.filter(x => x && typeof x === 'object');
+    if(state.framework === 'COMES MPESA') {
+      const ci = classInfoSection();
+      const ai = sections.findIndex(x => /^class (objectives|information)/i.test(String(x.name || '')) || String(x.letter || '') === 'A');
+      if(ai >= 0) sections[ai] = ci; else sections.unshift(ci);
+    }
     if(main) {
       sections = sections.filter(x => !x.isSteps && x.name !== main[1]);
       if(!sections.length) throw new Error('No sections in AI response');
@@ -4855,6 +4860,7 @@ async function startGeneration() {
       renderOutput();
     }
     go('output');
+    loadSectionImages();
   } catch(err) {
     console.error('Generation error:', err);
     const msg = err.message || 'Unknown error';
@@ -4884,7 +4890,7 @@ function buildPrompt() {
 FRAMEWORK: COMES MPESA (Nigerian Standard Lesson Note Format)
 This is the official Nigerian secondary school lesson planning framework. Each section has a specific pedagogical purpose:
 
-A — CLASS OBJECTIVES: State the broad educational goals for this lesson. What overarching outcomes does this lesson contribute to? Reference the Nigerian curriculum objectives for ${subject} at ${classLevel} level. Be specific to the subject and topic.
+A — CLASS INFORMATION: Output a short placeholder only (content: "Class information"). The app fills this section itself from the teacher's form, so do not write objectives here.
 
 B — INSTRUCTIONAL OBJECTIVES: Write at least 3 SMART behavioural objectives (3 to 6; choose the number to suit ${classLevel}, the age of the students${age ? ` (${age})` : ''} and the length of the lesson, so a younger class or shorter period gets fewer, simpler objectives) using Bloom's Taxonomy verbs. Format: "By the end of the lesson, students should be able to..." Use verbs like: define, state, list (Knowledge); explain, describe (Comprehension); solve, calculate, demonstrate (Application); compare, analyse (Analysis). Make every objective specific to ${topic} in ${subject}.
 
@@ -4991,7 +4997,7 @@ Generate a complete, authentic lesson note for ${subject} — ${topic} at ${clas
 
   const cfg = {
     'COMES MPESA': { mainSection: 'Instructional Procedure', mainLetter: 'G',
-      sections: 'A=Class Objectives, B=Instructional Objectives, C=Instructional Materials, D=Entry Behaviour, E=Set Induction, F=Instructional Method, G=Instructional Procedure (isSteps), H=Evaluation, I=Summary, J=Assignment' },
+      sections: 'A=Class Information, B=Instructional Objectives, C=Instructional Materials, D=Entry Behaviour, E=Set Induction, F=Instructional Method, G=Instructional Procedure (isSteps), H=Evaluation, I=Summary, J=Assignment' },
     'ADDIE':       { mainSection: 'Development', mainLetter: 'C',
       sections: 'A=Analysis, B=Design, C=Development (isSteps), D=Implementation, E=Evaluation' },
     '5E':          { mainSection: 'Explain', mainLetter: 'C',
@@ -5042,12 +5048,12 @@ ${isComes ? `2. The main teaching section ("${cfg.mainSection}") uses isSteps:tr
 14. CRITICAL: Generate ONLY the sections of the ${fw} framework. Do NOT mix in sections from other frameworks.
 15. ALIGNMENT: Wherever objectives appear, write them as measurable outcomes starting with an action verb at a suitable Bloom's taxonomy level (for example define, calculate, analyse). Every activity, question and assessment task must match at least one stated objective and the same level of thinking.
 18. LEARNER FIT: Every section, guide, description, activity, example, question and the Smart Pick options and recommendation must be tailored to the class (${classLevel}), the age of the students${age ? ` (${age})` : ''}, the number of students${students ? ` (${students})` : ''} and the lesson length: use vocabulary, examples, task difficulty, activity types, group sizes and pacing that suit them.${challenges ? ` The teacher reports these challenges or learning speed: "${challenges}". Plan for them explicitly (for example extra scaffolding, simpler steps, extra practice, peer support, or extension tasks) and show where in the lesson this is done.` : ''}
-19. GUIDE ON EVERY SECTION: every section that is not the steps section MUST include a "guide" string of 3 to 5 bullet points (use \n between bullets) telling the teacher what to do and say, what the students do, how long it takes, and one tip fitted to the class, age, group size and any challenges. Never leave guide empty.
+19. GUIDE ON EVERY SECTION: every section that is not the steps section MUST include a "guide" string of 3 to 5 bullet points (use \n between bullets) telling the teacher what to do and say, what the students do, how long it takes, and one tip fitted to the class, age, group size and any challenges. Never leave guide empty. Be specific and actionable: name the exact thing to do (the actual question to ask, the exact example or diagram to put on the board, how many minutes, how to group the students, what to check). NEVER write vague lines like "The teacher will explain" or "Students will listen"; every bullet must say precisely what is said, shown or done on THIS topic.
 
 JSON OUTPUT FORMAT:
 {
   "sections": [
-    {"letter":"A","name":"Exact ${fw} Section Name","content":"Deep, real, framework-authentic content with **bold terms**, ## headings, | tables | where relevant, and **Teacher Activity:** / **Student Activity:** labels in procedure sections","guide":"• what the teacher does and says\\n• what students do\\n• how long it takes\\n• one tip fitted to this class, age and group size","imageSearch":"specific search term for relevant diagram or image","smartPickOptions":["specific option 1","specific option 2","specific option 3","specific option 4","specific option 5"],"smartPickRecommendation":"specific recommendation with reason"},
+    {"letter":"A","name":"Exact ${fw} Section Name","content":"Deep, real, framework-authentic content with **bold terms**, ## headings, | tables | where relevant, and **Teacher Activity:** / **Student Activity:** labels in procedure sections","guide":"• Ask: '<an actual question on the topic>' and take 3 answers (2 min)\\n• Write <the exact definition/example> on the board; students copy it (5 min)\\n• Pairs solve <a specific task>; teacher checks 3 pairs (8 min)\\n• Tip: <one concrete adjustment for this class size, age and pace>","imageSearch":"specific search term for relevant diagram or image","smartPickOptions":["specific option 1","specific option 2","specific option 3","specific option 4","specific option 5"],"smartPickRecommendation":"specific recommendation with reason"},
     {"letter":"${cfg.mainLetter}","name":"${cfg.mainSection}","isSteps":true,"steps":[
       {"stepNumber":1,"stepTitle":"Specific title for step 1","duration":"0-${s1} mins","objective":"measurable objective for this step",
        "teacherGuide":"• Action 1\\n• Question to ask\\n• Board instruction\\n• Management tip",
@@ -5066,7 +5072,7 @@ function getFallbackSections() {
 
   const fallbacks = {
     'COMES MPESA': [
-      { letter:'A', name:'Class Objectives', content:`Subject: ${subject}\nTopic: ${topic}\nClass: ${classLevel}\nDuration: ${duration}\nDate: ${new Date().toLocaleDateString('en-GB',{day:'numeric',month:'long',year:'numeric'})}` },
+      classInfoSection(),
       { letter:'B', name:'Instructional Objectives', content:`By the end of the lesson, students should be able to:\n- Define and explain ${topic}\n- Identify key components of ${topic}\n- Apply knowledge of ${topic} to real-world situations\n- Analyse the significance of ${topic} in ${subject}` },
       { letter:'C', name:'Instructional Materials', content:`- ${subject} textbook (${classLevel} level)\n- Charts and diagrams illustrating ${topic}\n- Whiteboard and coloured markers\n- Printed handouts with key concepts\n- Projector or visual aids (where available)` },
       { letter:'D', name:'Entry Behaviour', content:`Students are assumed to have prior knowledge of:\n- Basic foundational concepts in ${subject}\n- General terminology relevant to this subject area\n\nEntry check: Teacher will ask 2–3 short oral questions to assess readiness.` },
@@ -5103,7 +5109,7 @@ function getFallbackSections() {
   // Get framework-specific fallback or generate a generic one
   const sections = fallbacks[fw];
   const smartPickMap = {
-    'Class Objectives':       ['Individual Work','Pair Work','Small Groups (4-5)','Large Groups (6-8)','Whole Class Discussion'],
+    'Class Information':      ['Individual Work','Pair Work','Small Groups (4-5)','Large Groups (6-8)','Whole Class Discussion'],
     'Instructional Objectives':['Knowledge Level (Define, State, List)','Comprehension Level (Explain, Describe)','Application Level (Solve, Demonstrate)','Analysis Level (Compare, Examine)','Synthesis Level (Create, Design)','Evaluation Level (Justify, Assess)'],
     'Instructional Materials': ['Textbooks and Reference Materials','Charts and Diagrams','Real Objects / Realia','Audio-Visual Materials','Digital / ICT Materials','Locally Sourced Materials','Printed Handouts'],
     'Entry Behaviour':         ['Oral Questioning','Quick Written Quiz','Show of Hands / Class Poll','Brainstorming Session','Reference to Previous Lesson','Pair Discussion'],
@@ -5228,6 +5234,7 @@ function buildSectionBlock(sec, index) {
     </div>
     <div class="section-body">
       <div id="sec-content-${index}">${contentHtml}${sec.isSteps ? '' : guideBlockHtml(sec.guide)}</div>
+      <div id="sec-img-${index}">${(sec.images && sec.images.length) ? imagesHtml(index) : ''}</div>
       <div class="edit-zone" id="edit-${index}">
         <textarea id="edit-ta-${index}" rows="8">${editContent.replace(/</g,'&lt;').replace(/>/g,'&gt;')}</textarea>
         <div class="edit-zone-actions">
@@ -5249,6 +5256,79 @@ function buildSectionBlock(sec, index) {
     </div>
   `;
   return div;
+}
+
+
+function classInfoSection() {
+  const li = state.lessonInfo || {};
+  const rows = [
+    ['Subject', li.subject], ['Topic', li.topic], ['Class', li.classLevel],
+    ['Duration / Period', li.duration], ['Number of Students', li.students],
+    ['Age of Students', li.age],
+    ['Date', new Date().toLocaleDateString('en-GB',{day:'numeric',month:'long',year:'numeric'})]
+  ];
+  if(li.challenges) rows.push(['Learning Pace / Challenges', li.challenges]);
+  return { letter:'A', name:'Class Information', content: rows.filter(r => r[1]).map(r => `**${r[0]}:** ${r[1]}`).join('\n'),
+    guide:'• Confirm these details match the class you will actually teach.\n• Write them at the top of the lesson note before the lesson starts.\n• If the class is larger or younger than planned, adjust the activities before you begin.',
+    smartPickOptions:['Individual Work','Pair Work','Small Groups (4-5)','Large Groups (6-8)','Whole Class Discussion'] };
+}
+
+// ── Sourced images (Wikimedia Commons) ──
+async function fetchCommonsImages(q, n) {
+  try {
+    const u = 'https://commons.wikimedia.org/w/api.php?action=query&generator=search&gsrnamespace=6&gsrlimit=12&prop=imageinfo&iiprop=url|mime|extmetadata&iiurlwidth=640&format=json&origin=*&gsrsearch=' + encodeURIComponent(q);
+    const r = await fetch(u);
+    if(!r.ok) return [];
+    const d = await r.json();
+    const pages = Object.values((d.query && d.query.pages) || {}).sort((a,b) => (a.index||0)-(b.index||0));
+    const out = [];
+    for(const pg of pages) {
+      const ii = pg.imageinfo && pg.imageinfo[0];
+      if(!ii || !/^image\/(jpeg|png|svg)/.test(ii.mime || '') || !ii.thumburl) continue;
+      const m = ii.extmetadata || {};
+      const strip = x => String((x && x.value) || '').replace(/<[^>]*>/g,'').trim();
+      out.push({ url: ii.thumburl, title: String(pg.title||'').replace(/^File:/,'').replace(/\.[a-z]+$/i,''), credit: strip(m.Artist) || 'Wikimedia Commons', license: strip(m.LicenseShortName), page: ii.descriptionurl });
+      if(out.length >= n) break;
+    }
+    return out;
+  } catch(e) { return []; }
+}
+
+function imagesHtml(i) {
+  const sec = state.generatedSections[i];
+  const imgs = (sec && sec.images) || [];
+  if(!imgs.length) return '';
+  return imgs.map((im, k) => `<figure style="margin:10px 0;"><img src="${escapeHtml(im.url)}" alt="${escapeHtml(im.title)}" loading="lazy" style="max-width:100%;border-radius:8px;display:block;"><figcaption style="font-size:11px;opacity:.7;margin-top:4px;">${escapeHtml(im.title)} · ${escapeHtml(im.credit.slice(0,60))}${im.license ? ' · ' + escapeHtml(im.license) : ''} · <a href="${escapeHtml(im.page||'#')}" target="_blank" rel="noopener">source</a> · <a href="#" onclick="removeImage(${i},${k});return false;">remove</a></figcaption></figure>`).join('');
+}
+
+function removeImage(i, k) {
+  const sec = state.generatedSections[i];
+  if(!sec || !sec.images) return;
+  sec.images.splice(k, 1);
+  const el = document.getElementById(`sec-img-${i}`);
+  if(el) el.innerHTML = imagesHtml(i);
+}
+
+async function loadSectionImages() {
+  try {
+    const { subject, topic } = state.lessonInfo;
+    const secs = state.generatedSections;
+    for(let i = 0; i < secs.length; i++) {
+      const sec = secs[i];
+      if(!sec || sec.images) continue;
+      let q = null, n = 1;
+      if(sec.isSteps) { q = topic; n = 3; }
+      else if(sec.imageSearch) { q = sec.imageSearch; }
+      if(!q) continue;
+      let imgs = await fetchCommonsImages(q, n);
+      if(!imgs.length && sec.isSteps) imgs = await fetchCommonsImages(topic + ' ' + subject, n);
+      if(!imgs.length) continue;
+      if(state.generatedSections !== secs) return;
+      sec.images = imgs;
+      const el = document.getElementById(`sec-img-${i}`);
+      if(el) el.innerHTML = imagesHtml(i);
+    }
+  } catch(e) { /* images are optional */ }
 }
 
 function guideBlockHtml(g) {
@@ -5595,6 +5675,13 @@ function autoSmartPick(i) {
 
 async function regenSection(i, method) {
   const sec = state.generatedSections[i];
+  if(sec && sec.name === 'Class Information') {
+    const ci = classInfoSection();
+    Object.assign(sec, { content: ci.content, guide: ci.guide });
+    document.getElementById(`sec-content-${i}`).innerHTML = formatContent(ci.content) + guideBlockHtml(ci.guide);
+    toast('✓ Class information refreshed from your form','success');
+    return;
+  }
   const btn = document.querySelector(`#sec-${i} .btn-outline`);
   if(btn) { btn.disabled = true; btn.innerHTML = '<span class="spinner-inline"></span>'; }
 
@@ -5633,7 +5720,7 @@ Respond with JSON: {"steps": [...], "smartPickRecommendation": "..."}`
       : `${context}
 
 Regenerate the "${sec.name}" section. Make it rich, detailed, academically accurate, specific to ${topic}, and consistent with the other sections above.
-Also write "guide": 3 to 5 bullet points (one string, \n between bullets) telling the teacher what to do and say, what students do, how long it takes and one tip for this class.
+Also write "guide": 3 to 5 bullet points (one string, \n between bullets) telling the teacher what to do and say, what students do, how long it takes and one tip for this class. Be specific and actionable: name the exact thing to do (the actual question to ask, the exact example or diagram to put on the board, how many minutes, how to group the students, what to check). NEVER write vague lines like "The teacher will explain" or "Students will listen"; every bullet must say precisely what is said, shown or done on THIS topic.
 Respond with JSON: {"content": "detailed content as ONE string", "guide": "bullets as ONE string", "smartPickRecommendation": "recommendation here"}`;
 
     const raw = await aiCall(sysPrompt, userPrompt, isSteps ? 6000 : 3000);
@@ -5765,9 +5852,9 @@ function exportPDF() {
         const notes = `<h3>${step.stepTitle || ''} ${step.duration ? '('+step.duration+')' : ''}</h3>` + bits.join('') + (step.studentNotes ? `<p><strong>Lesson Note:</strong><br>${toText(step.studentNotes).replace(/\n/g,'<br>')}</p>` : '');
         const qc = step.quickCheck ? `<p><em>Quick Check: ${step.quickCheck.prompt}</em></p>` : '';
         return notes + qc;
-      }).join('');
+      }).join('') + ((sec.images||[]).map(im => `<p><img src="${im.url}" style="max-width:60%"><br><small>${im.title} — ${im.credit}${im.license ? ', ' + im.license : ''} (Wikimedia Commons)</small></p>`).join(''));
     } else {
-      content = toText(sec.content).split('\n').concat(sec.guide ? ['', 'Guide:'].concat(toText(sec.guide).split('\n')) : []).map(l => {
+      content = ((sec.images||[]).map(im => `<p><img src="${im.url}" style="max-width:60%"><br><small>${im.title} — ${im.credit}${im.license ? ', ' + im.license : ''} (Wikimedia Commons)</small></p>`).join('')) + toText(sec.content).split('\n').concat(sec.guide ? ['', 'Guide:'].concat(toText(sec.guide).split('\n')) : []).map(l => {
         if(l.startsWith('- ')) return `<ul><li>${l.slice(2)}</li></ul>`;
         if(l.match(/^\d+\./)) return `<ul><li>${l.replace(/^\d+\.\s*/,'')}</li></ul>`;
         return l ? `<p>${l}</p>` : '';
