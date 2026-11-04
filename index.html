@@ -3548,7 +3548,7 @@ body[data-theme="dark"] .auth-right-panel select.spc-input option {
             </select>
           </div>
           <div class="form-group">
-            <label class="form-label">Duration *</label>
+            <label class="form-label">Duration / Period *</label>
             <select class="form-select" id="f-duration">
               <option>30 minutes</option>
               <option selected>40 minutes</option>
@@ -3558,15 +3558,25 @@ body[data-theme="dark"] .auth-right-panel select.spc-input option {
             </select>
           </div>
         </div>
-        <div class="form-group">
-          <label class="form-label">Number of Students <span style="color:var(--text3);font-weight:400;text-transform:none;">(optional)</span></label>
-          <input class="form-input" id="f-students" placeholder="e.g. 35" type="number">
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">Number of Students <span style="color:var(--text3);font-weight:400;text-transform:none;">(optional)</span></label>
+            <input class="form-input" id="f-students" placeholder="e.g. 35" type="number">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Age of Students <span style="color:var(--text3);font-weight:400;text-transform:none;">(optional)</span></label>
+            <input class="form-input" id="f-age" placeholder="e.g. 14 or 13–15" type="text">
+          </div>
         </div>
         <div class="form-group">
           <label class="form-label">Prior Knowledge / Entry Behaviour Notes <span style="color:var(--text3);font-weight:400;text-transform:none;">(optional)</span></label>
           <textarea class="form-textarea" id="f-prior" placeholder="Describe what students already know about this topic..."></textarea>
         </div>
 
+        <div class="form-group">
+          <label class="form-label">Challenges Students Face / Learning Speed <span style="color:var(--text3);font-weight:400;text-transform:none;">(optional)</span></label>
+          <textarea class="form-textarea" id="f-challenges" placeholder="e.g. slow readers, weak in calculation, mixed ability, large class, no lab equipment..."></textarea>
+        </div>
         <div class="form-group">
           <label class="form-label">Your Notes / Content to Include <span style="color:var(--text3);font-weight:400;text-transform:none;">(optional)</span></label>
           <textarea class="form-textarea" id="f-notes" placeholder="Paste or type your own lesson notes here. FrancaAI will use them as the main source and fill any gaps from its knowledge of the topic."></textarea>
@@ -3581,9 +3591,9 @@ body[data-theme="dark"] .auth-right-panel select.spc-input option {
           </div>
           <div id="snap-zone" style="border:2px dashed var(--border2);border-radius:var(--radius-lg);padding:24px;text-align:center;cursor:pointer;transition:all 0.2s;" onclick="document.getElementById('snap-input').click()" ondragover="event.preventDefault();this.style.borderColor='var(--accent)'" ondragleave="this.style.borderColor='var(--border2)'" ondrop="handleSnapDrop(event)">
             <div style="font-size:28px;margin-bottom:8px;">📸</div>
-            <div style="font-size:14px;font-weight:600;color:var(--text2);margin-bottom:4px;">Snap or Upload a Note</div>
-            <div style="font-size:12px;color:var(--text3);">Take a photo or upload an image of a handwritten lesson note — AI will read and structure it automatically</div>
-            <input type="file" id="snap-input" accept="image/*" capture="environment" style="display:none;" onchange="handleSnapUpload(event)">
+            <div style="font-size:14px;font-weight:600;color:var(--text2);margin-bottom:4px;">Add a Note: Take Photo, Photos or Files</div>
+            <div style="font-size:12px;color:var(--text3);">Tap to take a photo, choose from your photos, or pick a file (including Google Drive). AI will read the note and use it in your lesson</div>
+            <input type="file" id="snap-input" accept="image/*" style="display:none;" onchange="handleSnapUpload(event)">
           </div>
           <div id="snap-preview" style="display:none;margin-top:12px;border-radius:var(--radius-lg);overflow:hidden;border:1px solid var(--border2);">
             <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;background:var(--surface2);">
@@ -4768,7 +4778,9 @@ function goStep2() {
     subject, topic, classLevel, duration,
     students: document.getElementById('f-students').value,
     prior: document.getElementById('f-prior').value,
-    notes: (document.getElementById('f-notes') || {}).value || ''
+    notes: (document.getElementById('f-notes') || {}).value || '',
+    age: (document.getElementById('f-age') || {}).value || '',
+    challenges: (document.getElementById('f-challenges') || {}).value || ''
   };
   go('step2');
 }
@@ -4808,17 +4820,40 @@ async function startGeneration() {
   });
 
   try {
-    const prompt = buildPrompt();
+    // The long procedure is written in a second request so neither reply is cut off
+    const MAINS = {'COMES MPESA':['G','Instructional Procedure'],'ADDIE':['C','Development'],'5E':['C','Explain'],'Herbartian':['B','Presentation'],'Dick & Carey':['F','Instructional Strategy'],'Kemp':['E','Content Sequencing'],'Custom':['C','Main Teaching Section'],'Smart Pick':['C','Main Teaching Section']};
+    const main = MAINS[state.framework];
+    let prompt = buildPrompt();
+    if(main) prompt += `\n\nOUTPUT LIMIT: In this reply output ONLY the sections other than "${main[1]}" (letter ${main[0]}). Do NOT write "${main[1]}": a separate request writes it. Keep every other section deep and specific.`;
     const raw = await aiCall(
       'You are FrancaAI, an expert Nigerian curriculum lesson planner. Respond with ONLY a valid JSON object — no text before or after, no markdown code fences. Inside content fields, use markdown formatting: **bold** for headings and key terms, ## for section headers, | tables | for tabular data, - for bullet lists, and numbered lists where appropriate. Separate Teacher Activity and Student Activity clearly using **Teacher Activity:** and **Student Activity:** labels.',
       prompt,
       8000
     );
     const parsed = repairJson(raw);
-    const sections = parsed.sections || (Array.isArray(parsed) ? parsed : null);
+    let sections = parsed.sections || (Array.isArray(parsed) ? parsed : null);
     if(!sections || !sections.length) throw new Error('No sections in AI response');
-    state.generatedSections = sections;
-    renderOutput();
+    sections = sections.filter(x => x && typeof x === 'object');
+    if(main) {
+      sections = sections.filter(x => !x.isSteps && x.name !== main[1]);
+      if(!sections.length) throw new Error('No sections in AI response');
+      const ph = { letter: main[0], name: main[1], isSteps: true, steps: [], smartPickOptions: ['Lecture / Explanation','Discussion Method','Demonstration','Question and Answer','Group Work / Collaborative Learning','Inquiry / Discovery','Activity-Based Learning','Think-Pair-Share'] };
+      const at = sections.findIndex(x => String(x.letter || '') > main[0]);
+      if(at < 0) sections.push(ph); else sections.splice(at, 0, ph);
+      state.generatedSections = sections;
+      renderOutput();
+      const pi = sections.indexOf(ph);
+      await regenSection(pi);   // writes the steps, lesson notes and guides, aligned with the other sections
+      const filled = state.generatedSections[pi];
+      if(!filled || !Array.isArray(filled.steps) || !filled.steps.length) {
+        const fb = getFallbackSections().find(x => x.name === main[1]);
+        if(fb) { state.generatedSections[pi] = fb; state._fallbackReason = 'The lesson steps could not be generated, so a template was used for that section. Tap Regen on it to try again.'; state._usingFallback = true; }
+        renderOutput();
+      }
+    } else {
+      state.generatedSections = sections;
+      renderOutput();
+    }
     go('output');
   } catch(err) {
     console.error('Generation error:', err);
@@ -4833,7 +4868,7 @@ async function startGeneration() {
 }
 
 function buildPrompt() {
-  const { subject, topic, classLevel, duration, students, prior, notes } = state.lessonInfo;
+  const { subject, topic, classLevel, duration, students, prior, notes, age, challenges } = state.lessonInfo;
   const fw = state.framework;
   const durationMins = parseInt(duration) || 40;
   const sourceNotes = [notes, state.snapExtractedContent].filter(Boolean).join('\n\n').slice(0, 12000);
@@ -4851,7 +4886,7 @@ This is the official Nigerian secondary school lesson planning framework. Each s
 
 A — CLASS OBJECTIVES: State the broad educational goals for this lesson. What overarching outcomes does this lesson contribute to? Reference the Nigerian curriculum objectives for ${subject} at ${classLevel} level. Be specific to the subject and topic.
 
-B — INSTRUCTIONAL OBJECTIVES: Write 4–6 SMART behavioural objectives using Bloom's Taxonomy verbs. Format: "By the end of the lesson, students should be able to..." Use verbs like: define, state, list (Knowledge); explain, describe (Comprehension); solve, calculate, demonstrate (Application); compare, analyse (Analysis). Make every objective specific to ${topic} in ${subject}.
+B — INSTRUCTIONAL OBJECTIVES: Write at least 3 SMART behavioural objectives (3 to 6; choose the number to suit ${classLevel}, the age of the students${age ? ` (${age})` : ''} and the length of the lesson, so a younger class or shorter period gets fewer, simpler objectives) using Bloom's Taxonomy verbs. Format: "By the end of the lesson, students should be able to..." Use verbs like: define, state, list (Knowledge); explain, describe (Comprehension); solve, calculate, demonstrate (Application); compare, analyse (Analysis). Make every objective specific to ${topic} in ${subject}.
 
 C — INSTRUCTIONAL MATERIALS: List all physical and digital resources the teacher will use. Include: textbooks with specific page references, charts/diagrams relevant to ${topic}, lab equipment (if science), mathematical tools (if maths), locally sourced materials. Be specific — not generic.
 
@@ -4976,7 +5011,7 @@ Generate a complete, authentic lesson note for ${subject} — ${topic} at ${clas
   return `You are FrancaAI — an expert educational AI with deep knowledge of instructional design frameworks. Generate a professional, complete lesson note as JSON.
 
 LESSON INFO:
-Subject: ${subject} | Topic: ${topic} | Class: ${classLevel} | Duration: ${duration}${students ? ` | Students: ${students}` : ''}${prior ? ` | Prior knowledge: ${prior}` : ''}
+Subject: ${subject} | Topic: ${topic} | Class: ${classLevel} | Duration: ${duration}${students ? ` | Number of students: ${students}` : ''}${age ? ` | Age of students: ${age}` : ''}${prior ? ` | Prior knowledge: ${prior}` : ''}${challenges ? ` | Challenges / learning speed: ${challenges}` : ''}
 ${sourceNotes ? `\nSOURCE MATERIAL FROM THE USER (use this as the PRIMARY content of the lesson: keep its definitions, facts, examples and terms, and organise them into the sections. Only add from your own knowledge of ${topic} where it is missing or unclear. Never contradict it):\n"""\n${sourceNotes}\n"""\n` : ''}
 ═══════════════════════════════════════
 FRAMEWORK EXPERTISE: ${fw}
@@ -5006,11 +5041,13 @@ ${isComes ? `2. The main teaching section ("${cfg.mainSection}") uses isSteps:tr
 13. Non-steps sections must be deeply detailed and framework-authentic — not just labels with vague text.
 14. CRITICAL: Generate ONLY the sections of the ${fw} framework. Do NOT mix in sections from other frameworks.
 15. ALIGNMENT: Wherever objectives appear, write them as measurable outcomes starting with an action verb at a suitable Bloom's taxonomy level (for example define, calculate, analyse). Every activity, question and assessment task must match at least one stated objective and the same level of thinking.
+18. LEARNER FIT: Every section, guide, description, activity, example, question and the Smart Pick options and recommendation must be tailored to the class (${classLevel}), the age of the students${age ? ` (${age})` : ''}, the number of students${students ? ` (${students})` : ''} and the lesson length: use vocabulary, examples, task difficulty, activity types, group sizes and pacing that suit them.${challenges ? ` The teacher reports these challenges or learning speed: "${challenges}". Plan for them explicitly (for example extra scaffolding, simpler steps, extra practice, peer support, or extension tasks) and show where in the lesson this is done.` : ''}
+19. GUIDE ON EVERY SECTION: every section that is not the steps section MUST include a "guide" string of 3 to 5 bullet points (use \n between bullets) telling the teacher what to do and say, what the students do, how long it takes, and one tip fitted to the class, age, group size and any challenges. Never leave guide empty.
 
 JSON OUTPUT FORMAT:
 {
   "sections": [
-    {"letter":"A","name":"Exact ${fw} Section Name","content":"Deep, real, framework-authentic content with **bold terms**, ## headings, | tables | where relevant, and **Teacher Activity:** / **Student Activity:** labels in procedure sections","imageSearch":"specific search term for relevant diagram or image","smartPickOptions":["specific option 1","specific option 2","specific option 3","specific option 4","specific option 5"],"smartPickRecommendation":"specific recommendation with reason"},
+    {"letter":"A","name":"Exact ${fw} Section Name","content":"Deep, real, framework-authentic content with **bold terms**, ## headings, | tables | where relevant, and **Teacher Activity:** / **Student Activity:** labels in procedure sections","guide":"• what the teacher does and says\\n• what students do\\n• how long it takes\\n• one tip fitted to this class, age and group size","imageSearch":"specific search term for relevant diagram or image","smartPickOptions":["specific option 1","specific option 2","specific option 3","specific option 4","specific option 5"],"smartPickRecommendation":"specific recommendation with reason"},
     {"letter":"${cfg.mainLetter}","name":"${cfg.mainSection}","isSteps":true,"steps":[
       {"stepNumber":1,"stepTitle":"Specific title for step 1","duration":"0-${s1} mins","objective":"measurable objective for this step",
        "teacherGuide":"• Action 1\\n• Question to ask\\n• Board instruction\\n• Management tip",
@@ -5190,7 +5227,7 @@ function buildSectionBlock(sec, index) {
       </div>
     </div>
     <div class="section-body">
-      <div id="sec-content-${index}">${contentHtml}</div>
+      <div id="sec-content-${index}">${contentHtml}${sec.isSteps ? '' : guideBlockHtml(sec.guide)}</div>
       <div class="edit-zone" id="edit-${index}">
         <textarea id="edit-ta-${index}" rows="8">${editContent.replace(/</g,'&lt;').replace(/>/g,'&gt;')}</textarea>
         <div class="edit-zone-actions">
@@ -5212,6 +5249,12 @@ function buildSectionBlock(sec, index) {
     </div>
   `;
   return div;
+}
+
+function guideBlockHtml(g) {
+  const t = toText(g);
+  if(!t) return '';
+  return `<div class="teacher-guide-block" style="margin-top:12px;"><div class="block-label teacher">🎓 Guide</div><div class="block-content">${formatContent(t)}</div></div>`;
 }
 
 function renderStepsContent(steps) {
@@ -5536,8 +5579,9 @@ function selectSPOption(el, i, option) {
   el.style.borderColor = 'var(--accent-bright)';
   el.style.color = 'var(--accent-bright)';
   const resultEl = document.getElementById(`sp-result-${i}`);
-  document.getElementById(`sp-result-text-${i}`).textContent = `Selected: ${option} — This approach will be applied to the ${state.generatedSections[i].name} section.`;
+  document.getElementById(`sp-result-text-${i}`).textContent = `Selected: ${option} — Applying this approach to the ${state.generatedSections[i].name} section…`;
   resultEl.classList.add('visible');
+  regenSection(i, option);
 }
 
 function autoSmartPick(i) {
@@ -5546,9 +5590,10 @@ function autoSmartPick(i) {
   document.getElementById(`sp-result-text-${i}`).textContent = rec || 'Smart Pick has analysed your lesson context and selected the most appropriate option.';
   resultEl.classList.add('visible');
   toast('⚡ Smart Pick applied','success');
+  regenSection(i, rec || '');
 }
 
-async function regenSection(i) {
+async function regenSection(i, method) {
   const sec = state.generatedSections[i];
   const btn = document.querySelector(`#sec-${i} .btn-outline`);
   if(btn) { btn.disabled = true; btn.innerHTML = '<span class="spinner-inline"></span>'; }
@@ -5571,8 +5616,9 @@ async function regenSection(i) {
       return `${x.letter}. ${x.name}: ${body.slice(0, 700)}`;
     }).filter(Boolean).join('\n');
     const context = `Framework: ${state.framework}
-Subject: ${subject}, Topic: ${topic}, Class: ${classLevel}, Duration: ${duration}.
-${sourceNotes ? `SOURCE MATERIAL FROM THE USER (use as the primary content, add from your own knowledge only where it is missing):\n"${sourceNotes}"\n` : ''}
+Subject: ${subject}, Topic: ${topic}, Class: ${classLevel}, Duration: ${duration}.${state.lessonInfo.students ? ` Number of students: ${state.lessonInfo.students}.` : ''}${state.lessonInfo.age ? ` Age of students: ${state.lessonInfo.age}.` : ''}${state.lessonInfo.challenges ? ` Challenges / learning speed: ${state.lessonInfo.challenges}.` : ''}
+Tailor everything to this class, age, group size and these challenges.
+${method ? `Teaching approach to apply: ${method}.\n` : ''}${sourceNotes ? `SOURCE MATERIAL FROM THE USER (use as the primary content, add from your own knowledge only where it is missing):\n"${sourceNotes}"\n` : ''}
 OTHER SECTIONS OF THIS LESSON NOTE (the new content MUST agree with them: same objectives, terms, materials, method and level):
 ${others}`;
 
@@ -5587,12 +5633,14 @@ Respond with JSON: {"steps": [...], "smartPickRecommendation": "..."}`
       : `${context}
 
 Regenerate the "${sec.name}" section. Make it rich, detailed, academically accurate, specific to ${topic}, and consistent with the other sections above.
-Respond with JSON: {"content": "detailed content as ONE string", "smartPickRecommendation": "recommendation here"}`;
+Also write "guide": 3 to 5 bullet points (one string, \n between bullets) telling the teacher what to do and say, what students do, how long it takes and one tip for this class.
+Respond with JSON: {"content": "detailed content as ONE string", "guide": "bullets as ONE string", "smartPickRecommendation": "recommendation here"}`;
 
     const raw = await aiCall(sysPrompt, userPrompt, isSteps ? 6000 : 3000);
     const parsed = repairJson(raw);
     if(Array.isArray(parsed.steps)) parsed.steps = parsed.steps.filter(x => x && typeof x === 'object');
     if(parsed.content != null) parsed.content = toText(parsed.content);
+    if(parsed.guide != null) parsed.guide = toText(parsed.guide);
 
     if(isSteps && parsed.steps && parsed.steps.length) {
       state.generatedSections[i].steps = parsed.steps;
@@ -5601,7 +5649,8 @@ Respond with JSON: {"content": "detailed content as ONE string", "smartPickRecom
     } else if(parsed.content) {
       state.generatedSections[i].isSteps = false;
       state.generatedSections[i].content = parsed.content;
-      document.getElementById(`sec-content-${i}`).innerHTML = formatContent(parsed.content);
+      if(parsed.guide) state.generatedSections[i].guide = parsed.guide;
+      document.getElementById(`sec-content-${i}`).innerHTML = formatContent(parsed.content) + guideBlockHtml(state.generatedSections[i].guide);
     }
     if(parsed.smartPickRecommendation) {
       state.generatedSections[i].smartPickRecommendation = parsed.smartPickRecommendation;
@@ -5647,23 +5696,28 @@ async function saveNote() {
   btn.innerHTML = '<span class="spinner-inline"></span> Saving...';
 
   try {
-    await fbAdd('lesson_notes', {
+    const saved = await fbAdd('lesson_notes', {
       user_id: state.user.id,
       subject: state.lessonInfo.subject,
       topic: state.lessonInfo.topic,
       class_level: state.lessonInfo.classLevel,
       duration: state.lessonInfo.duration,
+      students: String(state.lessonInfo.students || ''),
+      age: String(state.lessonInfo.age || ''),
+      challenges: String(state.lessonInfo.challenges || ''),
       framework: state.framework,
       sections: JSON.stringify(state.generatedSections),
       created_at: new Date().toISOString()
     });
+    if(!saved || !saved.id) throw new Error('The server did not confirm the save');
     await loadNotes();
     toast('\u2713 Lesson note saved successfully','success');
     setTimeout(() => {
       document.getElementById('feedback-modal').classList.remove('hidden');
     }, 1200);
   } catch(e) {
-    toast('Could not save note — try again','error');
+    console.error('Save error:', e);
+    toast('Could not save note: ' + (e && e.message ? e.message : 'try again'),'error');
   }
   btn.disabled = false;
   btn.innerHTML = '💾 Save Lesson Note';
@@ -5713,7 +5767,7 @@ function exportPDF() {
         return notes + qc;
       }).join('');
     } else {
-      content = toText(sec.content).split('\n').map(l => {
+      content = toText(sec.content).split('\n').concat(sec.guide ? ['', 'Guide:'].concat(toText(sec.guide).split('\n')) : []).map(l => {
         if(l.startsWith('- ')) return `<ul><li>${l.slice(2)}</li></ul>`;
         if(l.match(/^\d+\./)) return `<ul><li>${l.replace(/^\d+\.\s*/,'')}</li></ul>`;
         return l ? `<p>${l}</p>` : '';
