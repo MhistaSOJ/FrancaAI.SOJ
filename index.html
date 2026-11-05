@@ -4066,6 +4066,20 @@ body[data-theme="dark"] .auth-right-panel select.spc-input option {
 <!-- ══════════════════════════════════════════
      FEEDBACK MODAL
 ══════════════════════════════════════════ -->
+<div class="modal-overlay hidden" id="survey-modal">
+  <div class="modal-box" style="max-width:520px;width:calc(100% - 24px);max-height:92vh;overflow:auto;">
+    <h3 id="survey-title">Thanks for using FrancaAI 🙏</h3>
+    <p class="modal-sub" id="survey-msg" style="margin-bottom:12px;"></p>
+    <div style="border:1px solid var(--border,#334);border-radius:10px;overflow:hidden;margin-bottom:12px;background:#fff;">
+      <iframe id="survey-frame" title="FrancaAI survey preview" data-src="https://docs.google.com/forms/d/e/1FAIpQLSdXd4xBi5q2oD1pkN61va-Ies9HLXx6BF-Ymp8WgdKxpb5sng/viewform?embedded=true" style="width:100%;height:340px;border:0;display:block;" loading="lazy"></iframe>
+    </div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;">
+      <a class="btn btn-success" href="https://docs.google.com/forms/d/e/1FAIpQLSdXd4xBi5q2oD1pkN61va-Ies9HLXx6BF-Ymp8WgdKxpb5sng/viewform" target="_blank" rel="noopener" onclick="surveyDone()" style="text-decoration:none;flex:1;text-align:center;">Open full survey</a>
+      <button class="btn btn-ghost" onclick="closeSurvey()" style="flex:1;">Maybe later</button>
+    </div>
+    <p style="font-size:12px;opacity:.7;margin-top:10px;text-align:center;"><a href="#" onclick="surveyDone();return false;">I have already filled it</a></p>
+  </div>
+</div>
 <div class="modal-overlay hidden" id="feedback-modal">
   <div class="modal-box">
     <h3>Quick Feedback 🙏</h3>
@@ -4870,6 +4884,7 @@ async function startGeneration() {
       renderOutput();
     }
     go('output');
+    setTimeout(() => showSurvey('created'), 1500);
     for(const sec of state.generatedSections.slice()) {
       if(!sec._missing) continue;
       const idx = state.generatedSections.indexOf(sec);
@@ -5814,9 +5829,7 @@ async function saveNote() {
     if(!saved || !saved.id) throw new Error('The server did not confirm the save');
     await loadNotes();
     toast('\u2713 Lesson note saved successfully','success');
-    setTimeout(() => {
-      document.getElementById('feedback-modal').classList.remove('hidden');
-    }, 1200);
+    setTimeout(() => showSurvey('saved'), 1200);
   } catch(e) {
     console.error('Save error:', e);
     toast('Could not save note: ' + (e && e.message ? e.message : 'try again'),'error');
@@ -5891,6 +5904,7 @@ function exportPDF() {
   document.body.removeChild(a);
   URL.revokeObjectURL(url);
   toast('📄 Lesson note downloaded — open file and print to PDF','success');
+  setTimeout(() => showSurvey('exported'), 1500);
 }
 
 function exportNotePDF(i) {
@@ -5931,6 +5945,31 @@ document.addEventListener('DOMContentLoaded', function() {
   updateEngineLinks();
 });
 
+
+// ── Survey prompt (shown after key actions) ──
+const SURVEY_MSGS = {
+  created: 'Your lesson note is ready. Please take 2 minutes to tell us how it went. Your answers help improve FrancaAI.',
+  saved: 'Your lesson note is saved. Please take 2 minutes to share your experience.',
+  exported: 'Your lesson note has been downloaded. Please take 2 minutes to share your experience.',
+  research: 'Your research results are ready. Please take 2 minutes to share your experience.'
+};
+function showSurvey(kind) {
+  try {
+    if(localStorage.getItem('franca_survey_done') === '1') return;
+    state._surveyShown = state._surveyShown || {};
+    if(state._surveyShown[kind]) return;
+    state._surveyShown[kind] = true;
+  } catch(e) {}
+  const m = document.getElementById('survey-modal');
+  if(!m) return;
+  document.getElementById('survey-msg').textContent = SURVEY_MSGS[kind] || SURVEY_MSGS.saved;
+  const f = document.getElementById('survey-frame');
+  if(f && !f.src) f.src = f.getAttribute('data-src');
+  m.classList.remove('hidden');
+}
+function closeSurvey() { const m = document.getElementById('survey-modal'); if(m) m.classList.add('hidden'); }
+function surveyDone() { try { localStorage.setItem('franca_survey_done','1'); } catch(e) {} closeSurvey(); }
+
 async function findResources() {
   const subject = document.getElementById('res-subject').value;
   const topic = document.getElementById('res-topic').value.trim();
@@ -5951,6 +5990,7 @@ Return JSON only: {"resources": [{"type": "Video|Article|Teaching Tip|Diagram|Ac
     );
     const parsed = JSON.parse(raw.replace(/```json|```/g,'').trim());
     renderResources(parsed.resources || []);
+    setTimeout(() => showSurvey('research'), 1500);
   } catch(e) {
     renderResources([
       {type:'YouTube Video',title:`${topic} Explained Simply`,description:`Clear visual explanation of ${topic} with animated examples. Great for lesson preview or student homework.`,color:'#EF4444'},
